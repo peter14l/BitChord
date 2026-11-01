@@ -18,6 +18,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/KabirSinghBhatia/BitChord/backend/blend"
 	"github.com/KabirSinghBhatia/BitChord/backend/clock"
 	"github.com/KabirSinghBhatia/BitChord/backend/codes"
 	"github.com/KabirSinghBhatia/BitChord/backend/config"
@@ -30,6 +31,7 @@ import (
 var (
 	store    = party.NewPartyStore()
 	hubInst  = hub.NewHub()
+	blendStore = blend.NewStore()
 	createLimiter = newIPRateLimiter(time.Minute, config.CreateRatePerMinute, config.RateLimitMaxEntries)
 	presenceTracker = presence.NewTracker(
 		time.Duration(config.PresenceIntervalSec+config.PresenceGraceSec)*time.Second,
@@ -73,6 +75,12 @@ func main() {
 
 	// WebSocket endpoint
 	mux.HandleFunc("GET /ws/parties/{code}", handleWebSocket)
+
+	// Blend endpoints
+	mux.HandleFunc("POST /api/blend", handleCreateBlend)
+	mux.HandleFunc("POST /api/blend/{code}/join", handleJoinBlend)
+	mux.HandleFunc("GET /api/blend/{code}/wait", handleWaitBlend)
+	mux.HandleFunc("GET /api/blend/{code}/status", handleStatusBlend)
 
 	handler := corsMiddleware(mux)
 
@@ -267,6 +275,79 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 func handleTime(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"serverMs": clock.NowMs(),
+	})
+}
+
+// Blend endpoints
+type blendPayloadRequest struct {
+	Profile string `json:"profile"`
+}
+
+func handleCreateBlend(w http.ResponseWriter, r *http.Request) {
+	var body blendPayloadRequest
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	session, err := blendStore.Create(body.Profile)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid_payload", err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"code":      session.Code,
+		"expiresIn": int(blend.DefaultSessionTTL.Seconds()),
+	})
+}
+
+func handleJoinBlend(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	var body blendPayloadRequest
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	userAProfile, err := blendStore.Join(code, body.Profile)
+	if err != nil {
+		if errors.Is(err, blend.ErrSessionNotFound) {
+			jsonError(w, http.StatusNotFound, "session_not_found", "Blend room not found or expired")
+			return
+		}
+		if errors.Is(err, blend.ErrSessionFull) {
+			jsonError(w, http.StatusGone, "session_full", "Blend room already paired")
+			return
+		}
+		jsonError(w, http.StatusBadRequest, "invalid_join", err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"profile": userAProfile,
+	})
+}
+
+func handleWaitBlend(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	userBProfile, err := blendStore.WaitForB(code, 45*time.Second)
+	if err != nil {
+		if errors.Is(err, blend.ErrSessionNotFound) {
+			jsonError(w, http.StatusNotFound, "session_not_found", "Blend room not found or expired")
+			return
+		}
+		jsonError(w, http.StatusRequestTimeout, "timeout", "Timed out waiting for friend to join")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"profile": userBProfile,
+	})
+}
+
+func handleStatusBlend(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	joined, err := blendStore.GetStatus(code)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session_not_found", "Blend room not found or expired")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ready": joined,
 	})
 }
 

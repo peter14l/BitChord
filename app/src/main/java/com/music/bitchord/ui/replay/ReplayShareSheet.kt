@@ -87,11 +87,13 @@ fun ReplayShareSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var poster by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedTheme by remember { mutableStateOf(ReplayPosterTheme.AURORA_GLASS) }
     var failed by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
 
-    LaunchedEffect(summary, page) {
-        poster = runCatching { renderReplayPoster(context, summary, holder, memberSince, page) }
+    LaunchedEffect(summary, page, selectedTheme) {
+        poster = null
+        poster = runCatching { renderReplayPoster(context, summary, holder, memberSince, page, selectedTheme) }
             .onFailure { failed = true }
             .getOrNull()
     }
@@ -119,7 +121,40 @@ fun ReplayShareSheet(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(16.dp))
+
+        // Theme selector for full Replay poster
+        if (page == null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ReplayPosterTheme.all.forEach { theme ->
+                    val isSelected = selectedTheme == theme
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                            .clickable { selectedTheme = theme }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = theme.displayName,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        } else {
+            Spacer(Modifier.height(16.dp))
+        }
 
         // Small enough that the row of apps under it is on screen with it. A
         // preview that pushes the share targets below the fold is a preview

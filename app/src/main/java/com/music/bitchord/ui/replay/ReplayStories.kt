@@ -455,6 +455,9 @@ private fun StoryPage(
     summary: ReplaySummary,
     onShare: (ReplayStoryPage) -> Unit,
 ) {
+    var songQuizCompleted by remember { mutableStateOf(false) }
+    var artistQuizCompleted by remember { mutableStateOf(false) }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -467,10 +470,42 @@ private fun StoryPage(
                 when (page) {
                     ReplayStoryPage.INTRO -> Intro(summary, headline)
                     ReplayStoryPage.MINUTES -> Minutes(summary, headline)
-                    ReplayStoryPage.SONGS ->
-                        Leaderboard(headline, summary.songRows(STORY_ROWS), circular = false)
-                    ReplayStoryPage.ARTISTS ->
-                        Leaderboard(headline, summary.artistRows(STORY_ROWS), circular = true)
+                    ReplayStoryPage.SONGS -> {
+                        if (!songQuizCompleted && summary.songs.size >= 4) {
+                            val topSong = summary.songs.first().song.title
+                            val quizOptions = remember(summary) {
+                                (listOf(topSong) + summary.songs.drop(1).take(3).map { it.song.title }).shuffled()
+                            }
+                            Headline(headline)
+                            Spacer(Modifier.height(16.dp))
+                            ReplayQuizCard(
+                                question = "Can you guess which track was your #1 most played?",
+                                correctAnswer = topSong,
+                                options = quizOptions,
+                                onComplete = { songQuizCompleted = true },
+                            )
+                        } else {
+                            Leaderboard(headline, summary.songRows(STORY_ROWS), circular = false)
+                        }
+                    }
+                    ReplayStoryPage.ARTISTS -> {
+                        if (!artistQuizCompleted && summary.artists.size >= 4) {
+                            val topArtist = summary.artists.first().title
+                            val quizOptions = remember(summary) {
+                                (listOf(topArtist) + summary.artists.drop(1).take(3).map { it.title }).shuffled()
+                            }
+                            Headline(headline)
+                            Spacer(Modifier.height(16.dp))
+                            ReplayQuizCard(
+                                question = "Who was your undisputed #1 top artist?",
+                                correctAnswer = topArtist,
+                                options = quizOptions,
+                                onComplete = { artistQuizCompleted = true },
+                            )
+                        } else {
+                            Leaderboard(headline, summary.artistRows(STORY_ROWS), circular = true)
+                        }
+                    }
                     ReplayStoryPage.ALBUMS ->
                         Leaderboard(headline, summary.albumRows(STORY_ROWS), circular = false)
                     ReplayStoryPage.GENRES -> Genres(summary, headline)

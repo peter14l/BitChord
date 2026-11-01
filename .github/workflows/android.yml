@@ -2,7 +2,7 @@ name: Android Release APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/blend-and-wrapped]
   workflow_dispatch:
 
 jobs:
@@ -26,13 +26,24 @@ jobs:
         echo "LASTFM_SECRET=${{ secrets.LASTFM_SECRET }}" >> local.properties
         echo "LISTEN_TOGETHER_SERVER=${{ secrets.LISTEN_TOGETHER_SERVER }}" >> local.properties
 
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > bitchord-release.jks
-        {
-          echo "storeFile=bitchord-release.jks"
-          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}"
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}"
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
-        } > keystore.properties
+        if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > bitchord-release.jks
+          {
+            echo "storeFile=bitchord-release.jks"
+            echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}"
+            echo "keyAlias=${{ secrets.KEY_ALIAS }}"
+            echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+          } > keystore.properties
+        else
+          echo "No release keystore secret configured (fork build). Generating self-signed key so APK is installable..."
+          keytool -genkeypair -noprompt -keystore bitchord-release.jks -alias bitchord -keyalg RSA -keysize 2048 -validity 10000 -storepass bitchord -keypass bitchord -dname "CN=BitChordFork, OU=BitChord, O=BitChord, L=Unknown, ST=Unknown, C=US"
+          {
+            echo "storeFile=bitchord-release.jks"
+            echo "storePassword=bitchord"
+            echo "keyAlias=bitchord"
+            echo "keyPassword=bitchord"
+          } > keystore.properties
+        fi
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew

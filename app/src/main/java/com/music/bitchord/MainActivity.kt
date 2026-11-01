@@ -353,6 +353,10 @@ import com.music.bitchord.ui.replay.ReplayShareSheet
 import com.music.bitchord.ui.replay.ReplayStories
 import com.music.bitchord.ui.replay.ReplayStoryPage
 import com.music.bitchord.ui.replay.rememberReplayState
+import com.music.bitchord.ui.blend.BlendInviteScreen
+import com.music.bitchord.ui.blend.BlendPlaylistScreen
+import com.music.bitchord.ui.blend.BlendRevealStory
+import com.music.bitchord.data.blend.BlendedPlaylist
 import com.music.bitchord.ui.theme.BitChordTheme
 import com.music.bitchord.ui.theme.rememberArtworkPalette
 import com.music.bitchord.data.canvas.AppleArtistArtRepository
@@ -3041,6 +3045,39 @@ private fun BitChordApp(
                                 contentPadding = listPadding,
                                 onEditServer = { editingPartyServer = true },
                             )
+                        } else if (pageRoute == AppRoute.Blend) {
+                            var activeBlendedPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
+                            var showBlendRevealStory by remember { mutableStateOf(false) }
+
+                            if (showBlendRevealStory && activeBlendedPlaylist != null) {
+                                BlendRevealStory(
+                                    playlist = activeBlendedPlaylist!!,
+                                    onOpenPlaylist = { showBlendRevealStory = false },
+                                    onClose = { showBlendRevealStory = false },
+                                )
+                            } else if (activeBlendedPlaylist != null) {
+                                BlendPlaylistScreen(
+                                    playlist = activeBlendedPlaylist!!,
+                                    onTrackClick = { song -> viewModel.play(song) },
+                                    onPlayAll = {
+                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }
+                                        if (songs.isNotEmpty()) viewModel.playQueue(songs, 0)
+                                    },
+                                    onShuffleAll = {
+                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }.shuffled()
+                                        if (songs.isNotEmpty()) viewModel.playQueue(songs, 0)
+                                    },
+                                    onBack = { activeBlendedPlaylist = null },
+                                )
+                            } else {
+                                BlendInviteScreen(
+                                    onClose = { navigator.pop() },
+                                    onBlendReady = { playlist ->
+                                        activeBlendedPlaylist = playlist
+                                        showBlendRevealStory = true
+                                    },
+                                )
+                            }
                         } else if (pageRoute == AppRoute.Equalizer) {
                             EqualizerScreen(
                                 contentPadding = listPadding,
@@ -3083,6 +3120,7 @@ private fun BitChordApp(
                                 onTranslationLanguage = { showTranslationLanguage = true },
                                 onSources = { navigator.push(AppRoute.Sources) },
                                 onListenTogether = { navigator.push(AppRoute.ListenTogether) },
+                                onBlend = { navigator.push(AppRoute.Blend) },
                                 onWearOs = { navigator.push(AppRoute.WearOs) },
                                 onSpotifyCanvasAuth = { showSpotifyCanvasAuth = true },
                                 onAppLanguage = { showAppLanguage = true },
@@ -3741,6 +3779,7 @@ private fun BitChordApp(
                         AppRoute.AccountScrobbling -> stringResource(R.string.account_scrobbling)
                         AppRoute.Sources -> stringResource(R.string.sources)
                         AppRoute.ListenTogether -> stringResource(R.string.listen_together)
+                        AppRoute.Blend -> "Blend"
                         AppRoute.WearOs -> stringResource(R.string.wear_os_page_title)
                         AppRoute.Equalizer -> stringResource(R.string.equalizer)
                         AppRoute.Settings -> stringResource(R.string.settings)

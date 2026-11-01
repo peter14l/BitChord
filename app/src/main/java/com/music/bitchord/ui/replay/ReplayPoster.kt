@@ -68,6 +68,7 @@ suspend fun renderReplayPoster(
      * lives.
      */
     page: ReplayStoryPage? = null,
+    theme: ReplayPosterTheme = ReplayPosterTheme.AURORA_GLASS,
 ): Bitmap = coroutineScope {
     // The artwork this needs is a dozen small fetches that are all in Coil's
     // disk cache already — the page they came from has been on screen. Started
@@ -89,20 +90,33 @@ suspend fun renderReplayPoster(
         val canvas = Canvas(bitmap)
         val type = Fonts(context)
 
-        // The same cover and the same turn of the colour wheel the card on
-        // screen was drawn with, so the picture is recognisably that card.
-        drawBackdrop(canvas, covers[lit], page?.let(::storyHue) ?: 0f)
-        var y = drawHeader(canvas, context, type, summary, holder, memberSince)
-        if (page == null) {
-            y = drawTotals(canvas, context, type, summary, y)
-            y = drawColumns(canvas, context, type, songs, artists, covers, y)
-            y = drawAlbums(canvas, context, type, albums, covers, y)
-            drawGenres(canvas, context, type, summary, y)
-        } else {
-            y = drawRuns(canvas, type, summary.storyHeadline(context, page), MARGIN, y, CONTENT_W)
-            drawCard(canvas, context, type, summary, page, covers, y + 56f)
+        when (theme) {
+            ReplayPosterTheme.AURORA_GLASS -> {
+                // The same cover and the same turn of the colour wheel the card on
+                // screen was drawn with, so the picture is recognisably that card.
+                drawBackdrop(canvas, covers[lit], page?.let(::storyHue) ?: 0f)
+                var y = drawHeader(canvas, context, type, summary, holder, memberSince)
+                if (page == null) {
+                    y = drawTotals(canvas, context, type, summary, y)
+                    y = drawColumns(canvas, context, type, songs, artists, covers, y)
+                    y = drawAlbums(canvas, context, type, albums, covers, y)
+                    drawGenres(canvas, context, type, summary, y)
+                } else {
+                    y = drawRuns(canvas, type, summary.storyHeadline(context, page), MARGIN, y, CONTENT_W)
+                    drawCard(canvas, context, type, summary, page, covers, y + 56f)
+                }
+                drawFooter(canvas, context, type)
+            }
+            ReplayPosterTheme.NEO_BRUTALIST -> {
+                drawBrutalistPoster(canvas, context, type, summary, holder, songs, artists)
+            }
+            ReplayPosterTheme.THERMAL_RECEIPT -> {
+                drawReceiptPoster(canvas, context, type, summary, holder, songs, artists)
+            }
+            ReplayPosterTheme.ANALOG_CASSETTE -> {
+                drawCassettePoster(canvas, context, type, summary, holder, songs, artists)
+            }
         }
-        drawFooter(canvas, context, type)
         bitmap
     }
 }
@@ -789,3 +803,228 @@ private const val ACCENT = 0xFFFA2D48.toInt()
 private const val POSTER_ROWS = 5
 private const val POSTER_ALBUMS = 3
 private const val POSTER_GENRES = 4
+
+// ── Alternate Themes: Neo-Brutalist, Receipt, Cassette ─────────────────────
+
+private fun drawBarcode(canvas: Canvas, x: Float, y: Float, width: Float, height: Float, color: Int) {
+    val paint = Paint().apply {
+        this.color = color
+        style = Paint.Style.FILL
+    }
+    var curX = x
+    val barPattern = listOf(6f, 4f, 12f, 4f, 8f, 6f, 18f, 4f, 6f, 10f, 4f, 8f, 14f, 4f, 8f, 4f, 22f, 4f, 6f, 6f, 10f, 4f, 16f, 4f, 8f, 6f)
+    var pIdx = 0
+    while (curX < x + width) {
+        val w = barPattern[pIdx % barPattern.size]
+        val space = barPattern[(pIdx + 1) % barPattern.size]
+        pIdx += 2
+        canvas.drawRect(curX, y, curX + w, y + height, paint)
+        curX += w + space
+    }
+}
+
+private fun drawBrutalistPoster(
+    canvas: Canvas,
+    context: Context,
+    type: Fonts,
+    summary: ReplaySummary,
+    holder: String,
+    songs: List<ReplayRow>,
+    artists: List<ReplayRow>,
+) {
+    canvas.drawColor(0xFF0F0F0F.toInt())
+
+    // High-contrast neon frame
+    val neon = 0xFFD4FF00.toInt()
+    val framePaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        color = neon
+    }
+    canvas.drawRect(36f, 36f, POSTER_W - 36f, POSTER_H - 36f, framePaint)
+
+    // Header
+    canvas.drawText("BITCHORD // REPLAY", 72f, 140f, type.heading(76f, neon))
+    val sub = "${summary.label.uppercase()} // ${holder.uppercase()}"
+    canvas.drawText(sub, 72f, 200f, type.label(26f, Color.WHITE))
+
+    // Total Minutes Banner
+    val bannerPaint = Paint().apply {
+        color = neon
+        style = Paint.Style.FILL
+    }
+    canvas.drawRect(72f, 240f, POSTER_W - 72f, 420f, bannerPaint)
+    canvas.drawText(formatMinutes(summary.totalMs), 100f, 350f, type.heading(108f, Color.BLACK))
+    canvas.drawText("MINUTES LISTENED", 100f, 395f, type.label(26f, Color.BLACK))
+
+    // Top Songs
+    canvas.drawText("// TOP TRACKS", 72f, 490f, type.heading(34f, neon))
+    var y = 550f
+    songs.take(5).forEachIndexed { i, s ->
+        canvas.drawText("#0${i + 1}", 72f, y, type.heading(36f, neon))
+        canvas.drawText(ellipsised(s.title, type.body(36f, Color.WHITE, bold = true), 740f), 160f, y, type.body(36f, Color.WHITE, bold = true))
+        s.subtitle?.let {
+            canvas.drawText(ellipsised(it, type.body(26f, 0x99FFFFFF.toInt()), 740f), 160f, y + 36f, type.body(26f, 0x99FFFFFF.toInt()))
+        }
+        y += 94f
+    }
+
+    // Top Artists
+    y += 20f
+    canvas.drawText("// TOP ARTISTS", 72f, y, type.heading(34f, neon))
+    y += 60f
+    artists.take(5).forEachIndexed { i, a ->
+        canvas.drawText("#0${i + 1}", 72f, y, type.heading(36f, neon))
+        canvas.drawText(ellipsised(a.title, type.body(36f, Color.WHITE, bold = true), 740f), 160f, y, type.body(36f, Color.WHITE, bold = true))
+        canvas.drawText(formatListening(context, a.ms), 740f, y, type.body(28f, 0x88FFFFFF.toInt()))
+        y += 82f
+    }
+
+    // Barcode footer
+    drawBarcode(canvas, 72f, POSTER_H - 180f, CONTENT_W, 70f, neon)
+    canvas.drawText("VERIFIED AUDITORY RECORD // BITCHORD 2026", 72f, POSTER_H - 74f, type.label(24f, Color.WHITE))
+}
+
+private fun drawReceiptPoster(
+    canvas: Canvas,
+    context: Context,
+    type: Fonts,
+    summary: ReplaySummary,
+    holder: String,
+    songs: List<ReplayRow>,
+    artists: List<ReplayRow>,
+) {
+    canvas.drawColor(0xFFF7F5EE.toInt()) // Thermal paper
+    val ink = 0xFF141414.toInt()
+    val inkDim = 0xFF666666.toInt()
+
+    fun centerText(text: String, y: Float, paint: Paint) {
+        val w = paint.measureText(text)
+        canvas.drawText(text, (POSTER_W - w) / 2f, y, paint)
+    }
+
+    var y = 140f
+    centerText("*** BITCHORD REPLAY RECEIPT ***", y, type.heading(46f, ink))
+    y += 50f
+    centerText("STORE: YOUTUBE MUSIC CLIENT  #042", y, type.label(24f, inkDim))
+    y += 40f
+    centerText("CUSTOMER: ${holder.uppercase()}", y, type.label(24f, inkDim))
+    y += 50f
+
+    val dash = "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -"
+    centerText(dash, y, type.label(22f, inkDim))
+    y += 50f
+
+    centerText("ITEMS PURCHASED (TOP SONGS)", y, type.heading(30f, ink))
+    y += 60f
+    songs.take(5).forEachIndexed { i, s ->
+        val line = "0${i + 1}  ${s.title.take(24).uppercase()}"
+        canvas.drawText(line, 90f, y, type.body(32f, ink, bold = true))
+        canvas.drawText("${s.plays}x", POSTER_W - 180f, y, type.body(32f, ink, bold = true))
+        y += 64f
+    }
+
+    y += 20f
+    centerText(dash, y, type.label(22f, inkDim))
+    y += 50f
+
+    centerText("TOP ARTISTS SERVED", y, type.heading(30f, ink))
+    y += 60f
+    artists.take(5).forEachIndexed { i, a ->
+        val line = "0${i + 1}  ${a.title.take(28).uppercase()}"
+        canvas.drawText(line, 90f, y, type.body(32f, ink))
+        y += 56f
+    }
+
+    y += 30f
+    centerText(dash, y, type.label(22f, inkDim))
+    y += 60f
+
+    // Totals
+    fun totalLine(label: String, value: String) {
+        canvas.drawText(label, 90f, y, type.label(28f, inkDim))
+        canvas.drawText(value, POSTER_W - 90f - type.body(36f, ink, bold = true).measureText(value), y, type.body(36f, ink, bold = true))
+        y += 60f
+    }
+
+    totalLine("SUBTOTAL MINUTES", formatMinutes(summary.totalMs))
+    totalLine("TOTAL TRACK PLAYS", "${summary.totalPlays}")
+    summary.peakHour?.let { totalLine("PEAK LISTENING HOUR", formatHour(context, it)) }
+    totalLine("TOTAL MUSIC ENJOYED", "100%")
+
+    y += 40f
+    centerText(dash, y, type.label(22f, inkDim))
+    y += 70f
+    drawBarcode(canvas, 140f, y, POSTER_W - 280f, 90f, ink)
+    y += 130f
+    centerText("THANK YOU FOR LISTENING // HAVE A GREAT YEAR", y, type.label(22f, inkDim))
+}
+
+private fun drawCassettePoster(
+    canvas: Canvas,
+    context: Context,
+    type: Fonts,
+    summary: ReplaySummary,
+    holder: String,
+    songs: List<ReplayRow>,
+    artists: List<ReplayRow>,
+) {
+    canvas.drawColor(0xFF1B1917.toInt()) // Deep analog tape casing
+    val cream = 0xFFF2EAD9.toInt()
+    val orange = 0xFFE07A5F.toInt()
+    val gold = 0xFFF2CC8F.toInt()
+
+    // Outer cassette label
+    val labelPaint = Paint().apply {
+        color = cream
+        style = Paint.Style.FILL
+    }
+    canvas.drawRoundRect(72f, 100f, POSTER_W - 72f, POSTER_H - 120f, 32f, 32f, labelPaint)
+
+    // Retro stripe header
+    val stripePaint = Paint().apply {
+        color = orange
+        style = Paint.Style.FILL
+    }
+    canvas.drawRect(72f, 220f, POSTER_W - 72f, 260f, stripePaint)
+    stripePaint.color = gold
+    canvas.drawRect(72f, 260f, POSTER_W - 72f, 280f, stripePaint)
+
+    // Cassette holes
+    val holePaint = Paint().apply {
+        color = 0xFF1B1917.toInt()
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(300f, 400f, 60f, holePaint)
+    canvas.drawCircle(POSTER_W - 300f, 400f, 60f, holePaint)
+
+    canvas.drawText("BITCHORD C-90 MIXTAPE", 120f, 180f, type.heading(42f, 0xFF1B1917.toInt()))
+    canvas.drawText("${holder.uppercase()} // ${summary.label.uppercase()}", 120f, 340f, type.label(26f, 0xFF555555.toInt()))
+
+    // SIDE A: Top Songs
+    var y = 550f
+    canvas.drawText("SIDE A  (TOP TRACKS)", 120f, y, type.heading(34f, orange))
+    y += 50f
+    songs.take(5).forEachIndexed { i, s ->
+        val text = "A${i + 1}.  ${s.title} - ${s.subtitle ?: ""}"
+        canvas.drawText(ellipsised(text, type.body(32f, 0xFF222222.toInt(), bold = true), 800f), 120f, y, type.body(32f, 0xFF222222.toInt(), bold = true))
+        y += 66f
+    }
+
+    // SIDE B: Top Artists
+    y += 40f
+    canvas.drawText("SIDE B  (TOP ARTISTS)", 120f, y, type.heading(34f, orange))
+    y += 50f
+    artists.take(5).forEachIndexed { i, a ->
+        val text = "B${i + 1}.  ${a.title}"
+        canvas.drawText(ellipsised(text, type.body(32f, 0xFF222222.toInt(), bold = true), 800f), 120f, y, type.body(32f, 0xFF222222.toInt(), bold = true))
+        canvas.drawText(formatListening(context, a.ms), 760f, y, type.body(26f, 0xFF777777.toInt()))
+        y += 66f
+    }
+
+    // Tape Stats
+    y += 50f
+    canvas.drawText("PLAY TIME: ${formatMinutes(summary.totalMs)} MINS", 120f, y, type.label(28f, 0xFF333333.toInt()))
+    y += 50f
+    canvas.drawText("HIGH FIDELITY STEREO // CASSETTE INSERT", 120f, y, type.label(22f, 0xFF888888.toInt()))
+}
