@@ -130,6 +130,7 @@ import com.music.bitchord.auth.WebSessionMode
 import com.music.bitchord.auth.YtMusicLoginScreen
 import com.music.bitchord.data.AppUpdateChecker
 import com.music.bitchord.data.LocalMediaRepository
+import com.music.bitchord.data.blend.BlendInviteLink
 import com.music.bitchord.data.listentogether.JamInviteLink
 import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.listentogether.partyQueueIndexOf
@@ -397,6 +398,7 @@ class MainActivity : AppCompatActivity() {
         // the request already standing by the time BitChordApp first reads it.
         PlayerDeepLink.consume(intent)
         JamInviteLink.consume(intent)
+        BlendInviteLink.consume(intent)
         // Likewise for a link tapped or shared from another app — see [MusicLink].
         MusicLink.consume(intent)
         setContent {
@@ -505,6 +507,7 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         PlayerDeepLink.consume(intent)
         JamInviteLink.consume(intent)
+        BlendInviteLink.consume(intent)
         MusicLink.consume(intent)
     }
 }
@@ -874,6 +877,7 @@ private fun BitChordApp(
     )
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
     val incomingJamInvite by JamInviteLink.pending.collectAsStateWithLifecycle()
+    val incomingBlendInvite by BlendInviteLink.pending.collectAsStateWithLifecycle()
     var activeJamInviteCode by rememberSaveable { mutableStateOf<String?>(null) }
     var activeJamInviteServer by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -890,6 +894,15 @@ private fun BitChordApp(
         webSession = null
         navigator.reset(AppRoute.Settings, AppRoute.ListenTogether)
         JamInviteLink.handled()
+    }
+    LaunchedEffect(incomingBlendInvite) {
+        val invite = incomingBlendInvite ?: return@LaunchedEffect
+        dismissPlayer()
+        replayStory = null
+        showReplayShare = false
+        webSession = null
+        navigator.reset(AppRoute.Settings, AppRoute.Blend)
+        BlendInviteLink.handled()
     }
     LaunchedEffect(signedIn, activeJamInviteCode) {
         if (signedIn && activeJamInviteCode != null) {
