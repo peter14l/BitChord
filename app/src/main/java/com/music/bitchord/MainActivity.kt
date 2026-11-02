@@ -637,6 +637,7 @@ private fun BitChordApp(
     var replayLandingPage by rememberSaveable { mutableStateOf(ReplayStoryPage.INTRO) }
     var replayStory by rememberSaveable { mutableStateOf<ReplayStoryPage?>(null) }
     var blendRevealStoryPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
+    var activeBlendedPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
     var showReplayShare by rememberSaveable { mutableStateOf(false) }
     /** Which story card the share sheet is for, or null for the whole Replay. */
     var replaySharePage by rememberSaveable { mutableStateOf<ReplayStoryPage?>(null) }
@@ -2767,7 +2768,11 @@ private fun BitChordApp(
     val canGoBack = navigator.entries.isNotEmpty() || detailStack.isNotEmpty() ||
         selectedMoodGenre != null || selectedTab != TAB_HOME
     val goBack: () -> Unit = {
-        if (!navigator.pop() && !viewModel.closeMoodGenre()) selectedTab = TAB_HOME
+        if (activeBlendedPlaylist != null) {
+            activeBlendedPlaylist = null
+        } else if (!navigator.pop() && !viewModel.closeMoodGenre()) {
+            selectedTab = TAB_HOME
+        }
     }
 
     Box(
@@ -2801,6 +2806,7 @@ private fun BitChordApp(
         // something that never appeared.
         val replayDrawable = replay.summary?.isEmpty == false
         BackHandler(enabled = blendRevealStoryPlaylist != null) { blendRevealStoryPlaylist = null }
+        BackHandler(enabled = activeBlendedPlaylist != null) { activeBlendedPlaylist = null }
         BackHandler(enabled = replayDrawable && replayStory != null && !showReplayShare) { replayStory = null }
         BackHandler(enabled = replayDrawable && showReplayShare) { showReplayShare = false }
         BackHandler(enabled = showUpdateDialog) { showUpdateDialog = false }
@@ -3061,29 +3067,45 @@ private fun BitChordApp(
                                 onEditServer = { editingPartyServer = true },
                             )
                         } else if (pageRoute == AppRoute.Blend) {
-                            var activeBlendedPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
-
                             if (activeBlendedPlaylist != null) {
                                 BlendPlaylistScreen(
                                     playlist = activeBlendedPlaylist!!,
-                                    onTrackClick = { song ->
-                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }
-                                        val index = songs.indexOfFirst { it.videoId == song.videoId }.coerceAtLeast(0)
-                                        playFrom(songs, index, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                    currentSong = player.song,
+                                    isPlaying = player.isPlaying,
+                                    onSongClick = { songs, index ->
+                                        playFrom(
+                                            songs,
+                                            index,
+                                            QueueSource(activeBlendedPlaylist!!.title, PlaybackSourceType.BROWSE),
+                                        )
                                     },
+                                    onSongLongPress = { openSongMenu(it) },
+                                    onSongSwipe = { onSongSwipe(it) },
                                     onPlayAll = {
                                         val songs = activeBlendedPlaylist!!.tracks.map { it.song }
                                         if (songs.isNotEmpty()) {
-                                            playFrom(songs, 0, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                            playFrom(
+                                                songs,
+                                                0,
+                                                QueueSource(activeBlendedPlaylist!!.title, PlaybackSourceType.BROWSE),
+                                            )
                                         }
                                     },
                                     onShuffleAll = {
-                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }.shuffled()
+                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }
                                         if (songs.isNotEmpty()) {
-                                            playFrom(songs, 0, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                            QueueShuffle.enableForNextQueue()
+                                            playFrom(
+                                                songs,
+                                                songs.indices.random(),
+                                                QueueSource(activeBlendedPlaylist!!.title, PlaybackSourceType.BROWSE),
+                                            )
                                         }
                                     },
-                                    onBack = { activeBlendedPlaylist = null },
+                                    onOpenStory = {
+                                        blendRevealStoryPlaylist = activeBlendedPlaylist
+                                    },
+                                    contentPadding = listPadding,
                                 )
                             } else {
                                 BlendInviteScreen(
@@ -3795,7 +3817,7 @@ private fun BitChordApp(
                         AppRoute.AccountScrobbling -> stringResource(R.string.account_scrobbling)
                         AppRoute.Sources -> stringResource(R.string.sources)
                         AppRoute.ListenTogether -> stringResource(R.string.listen_together)
-                        AppRoute.Blend -> "Blend"
+                        AppRoute.Blend -> activeBlendedPlaylist?.title ?: "Blend"
                         AppRoute.WearOs -> stringResource(R.string.wear_os_page_title)
                         AppRoute.Equalizer -> stringResource(R.string.equalizer)
                         AppRoute.Settings -> stringResource(R.string.settings)
