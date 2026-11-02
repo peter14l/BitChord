@@ -636,6 +636,7 @@ private fun BitChordApp(
     // category cards ask it to start at their matching ranked section.
     var replayLandingPage by rememberSaveable { mutableStateOf(ReplayStoryPage.INTRO) }
     var replayStory by rememberSaveable { mutableStateOf<ReplayStoryPage?>(null) }
+    var blendRevealStoryPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
     var showReplayShare by rememberSaveable { mutableStateOf(false) }
     /** Which story card the share sheet is for, or null for the whole Replay. */
     var replaySharePage by rememberSaveable { mutableStateOf<ReplayStoryPage?>(null) }
@@ -827,7 +828,7 @@ private fun BitChordApp(
     }
 
     SystemBarIcons(
-        dark = !darkTheme && !showNowPlaying && route != AppRoute.Replay && replayStory == null && !onboardingVisible,
+        dark = !darkTheme && !showNowPlaying && route != AppRoute.Replay && replayStory == null && blendRevealStoryPlaylist == null && !onboardingVisible,
     )
 
     val homeState by viewModel.home.collectAsStateWithLifecycle()
@@ -2799,6 +2800,7 @@ private fun BitChordApp(
         // to draw them from — otherwise back would spend a step closing
         // something that never appeared.
         val replayDrawable = replay.summary?.isEmpty == false
+        BackHandler(enabled = blendRevealStoryPlaylist != null) { blendRevealStoryPlaylist = null }
         BackHandler(enabled = replayDrawable && replayStory != null && !showReplayShare) { replayStory = null }
         BackHandler(enabled = replayDrawable && showReplayShare) { showReplayShare = false }
         BackHandler(enabled = showUpdateDialog) { showUpdateDialog = false }
@@ -3060,15 +3062,8 @@ private fun BitChordApp(
                             )
                         } else if (pageRoute == AppRoute.Blend) {
                             var activeBlendedPlaylist by remember { mutableStateOf<BlendedPlaylist?>(null) }
-                            var showBlendRevealStory by remember { mutableStateOf(false) }
 
-                            if (showBlendRevealStory && activeBlendedPlaylist != null) {
-                                BlendRevealStory(
-                                    playlist = activeBlendedPlaylist!!,
-                                    onOpenPlaylist = { showBlendRevealStory = false },
-                                    onClose = { showBlendRevealStory = false },
-                                )
-                            } else if (activeBlendedPlaylist != null) {
+                            if (activeBlendedPlaylist != null) {
                                 BlendPlaylistScreen(
                                     playlist = activeBlendedPlaylist!!,
                                     onTrackClick = { song ->
@@ -3095,7 +3090,7 @@ private fun BitChordApp(
                                     onClose = { navigator.pop() },
                                     onBlendReady = { playlist ->
                                         activeBlendedPlaylist = playlist
-                                        showBlendRevealStory = true
+                                        blendRevealStoryPlaylist = playlist
                                     },
                                 )
                             }
@@ -4169,7 +4164,7 @@ private fun BitChordApp(
                     }
                 }
 
-                if (glassActive) Column(
+                if (glassActive && blendRevealStoryPlaylist == null) Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .widthIn(max = FLOATING_BAR_MAX_WIDTH)
@@ -4205,7 +4200,7 @@ private fun BitChordApp(
                         pull = playerSheetMotion.takeIf { !reducePlayerMotion },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                } else Column(
+                } else if (blendRevealStoryPlaylist == null) Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         // Capped and centred rather than run to the page's edges
@@ -4825,6 +4820,15 @@ private fun BitChordApp(
                     paused = showReplayShare,
                 )
             }
+        }
+
+        // ---- Blend reveal story (Fullscreen overlay) ----
+        blendRevealStoryPlaylist?.let { playlist ->
+            BlendRevealStory(
+                playlist = playlist,
+                onOpenPlaylist = { blendRevealStoryPlaylist = null },
+                onClose = { blendRevealStoryPlaylist = null },
+            )
         }
 
         // ---- Share the Replay ----
