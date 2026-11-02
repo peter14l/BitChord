@@ -109,7 +109,7 @@ fun BlendInviteScreen(
 
         // Build taste profile, with starter favorites fallback if device has 0 play history
         val artists = if (summary.artists.isNotEmpty()) {
-            summary.artists.take(25).map { TasteArtist(it.browseId ?: it.title, it.title, weight = 1.0f, plays = it.plays) }
+            summary.artists.take(15).map { TasteArtist(it.browseId ?: it.title, it.title, weight = 1.0f, plays = it.plays) }
         } else {
             listOf(
                 TasteArtist("The Weeknd", "The Weeknd", 1.0f, 10),
@@ -120,7 +120,14 @@ fun BlendInviteScreen(
         }
 
         val tracks = if (summary.songs.isNotEmpty()) {
-            summary.songs.take(25).map { TasteTrack.fromSong(it.song, it.plays) }
+            summary.songs.take(15).map {
+                TasteTrack(
+                    videoId = it.song.videoId,
+                    title = it.song.title,
+                    artist = it.song.artist,
+                    playCount = it.plays,
+                )
+            }
         } else {
             listOf(
                 TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", playCount = 10),
@@ -131,7 +138,7 @@ fun BlendInviteScreen(
         }
 
         val genres = if (summary.genres.isNotEmpty()) {
-            summary.genres.take(8).map { it.title }
+            summary.genres.take(5).map { it.title }
         } else {
             listOf("Pop", "Synthwave", "Rock", "R&B")
         }
@@ -168,7 +175,7 @@ fun BlendInviteScreen(
             }
     }
 
-    val directInviteLink = compactPayload?.let { "bitchord://blend?p=$it" } ?: "bitchord://blend"
+    val directInviteLink = compactPayload?.let { "https://bitchord.kushagrasingh.in/blend?p=$it" } ?: "https://bitchord.kushagrasingh.in/blend"
 
     Column(
         modifier = modifier
@@ -284,9 +291,9 @@ fun BlendInviteScreen(
                             .background(Color(0xFF1DB954))
                             .clickable {
                                 val shareText = if (serverOnline && roomCode != null) {
-                                    "Let's blend our music on BitChord! Use room code: $roomCode or tap: $directInviteLink"
+                                    "🎵 Let's blend our music tastes on BitChord!\n\nRoom code: $roomCode\nOr tap this link to blend:\n$directInviteLink"
                                 } else {
-                                    "Let's blend our music tastes on BitChord! Tap to blend: $directInviteLink"
+                                    "🎵 Let's blend our music tastes on BitChord!\n\nTap this link to blend:\n$directInviteLink\n\n(Or copy this link and open BitChord → Settings → Blend)"
                                 }
                                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"

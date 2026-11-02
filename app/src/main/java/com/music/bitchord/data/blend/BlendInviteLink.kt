@@ -12,7 +12,7 @@ data class ParsedBlendInvite(
 )
 
 /**
- * Handles deep links for Spotify Blend invitations (e.g. bitchord://blend?p=... or bitchord://blend?code=...).
+ * Handles deep links for Spotify Blend invitations (both https:// and bitchord:// schemes).
  */
 object BlendInviteLink {
     private const val EXTRA_CONSUMED = "bitchord.blendInviteConsumed"
@@ -28,11 +28,17 @@ object BlendInviteLink {
 
         val dataStr = intent.dataString ?: return false
         val uri = runCatching { URI(dataStr) }.getOrNull() ?: return false
-        if (uri.scheme?.lowercase() != "bitchord" || uri.host?.lowercase() != "blend") return false
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host?.lowercase()
+        val path = uri.path?.lowercase().orEmpty()
+
+        val isBlendUri = (scheme == "bitchord" && host == "blend") ||
+            ((scheme == "https" || scheme == "http") && (host == "bitchord.kushagrasingh.in" || host == "bitchord.app") && path.startsWith("/blend"))
+        if (!isBlendUri) return false
 
         val query = uri.rawQuery.orEmpty()
-        val payload = if (query.contains("p=")) query.substringAfter("p=").substringBefore("&") else null
-        val code = if (query.contains("code=")) query.substringAfter("code=").substringBefore("&") else null
+        val payload = if (query.contains("p=")) query.substringAfter("p=").substringBefore("&").trim() else null
+        val code = if (query.contains("code=")) query.substringAfter("code=").substringBefore("&").trim() else null
 
         if (payload != null || code != null) {
             intent.putExtra(EXTRA_CONSUMED, true)

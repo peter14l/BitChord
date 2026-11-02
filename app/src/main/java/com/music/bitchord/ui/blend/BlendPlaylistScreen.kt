@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -131,7 +132,7 @@ private fun BlendHeader(
                 modifier = Modifier.padding(start = 4.dp),
             ) {
                 SmallAvatar(playlist.userAName, Color(0xFF6C5CE7))
-                Box(modifier = Modifier.padding(start = (-16).dp)) {
+                Box(modifier = Modifier.offset(x = (-16).dp)) {
                     SmallAvatar(playlist.userBName, Color(0xFF00CEC9))
                 }
 

@@ -249,6 +249,17 @@
                     android:host="blend" />
             </intent-filter>
 
+            <!-- Web link for Spotify Blend invites (clickable in WhatsApp, Telegram, etc.) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="bitchord.kushagrasingh.in"
+                    android:pathPrefix="/blend" />
+            </intent-filter>
+
             <!--
               Share → BitChord, from YT Music's own share sheet or from
               anywhere a link can be sent. The text is whatever the sending app
