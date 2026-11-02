@@ -123,10 +123,10 @@ fun BlendInviteScreen(
             summary.songs.take(25).map { TasteTrack.fromSong(it.song, it.plays) }
         } else {
             listOf(
-                TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", 10),
-                TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", 8),
-                TasteTrack("kJQP7kiw5Fk", "Despacito", "Luis Fonsi", 6),
-                TasteTrack("JGwWNGJdvx8", "Shape of You", "Ed Sheeran", 5),
+                TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", playCount = 10),
+                TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", playCount = 8),
+                TasteTrack("kJQP7kiw5Fk", "Despacito", "Luis Fonsi", playCount = 6),
+                TasteTrack("JGwWNGJdvx8", "Shape of You", "Ed Sheeran", playCount = 5),
             )
         }
 
@@ -378,11 +378,11 @@ fun BlendInviteScreen(
                             TasteArtist("Olivia Rodrigo", "Olivia Rodrigo", 1.0f, 15),
                         ),
                         topTracks = listOf(
-                            TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", 28),
-                            TasteTrack("V1Pl8CzNzCw", "bad guy", "Billie Eilish", 25),
-                            TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", 18),
-                            TasteTrack("oHg5SJYRHA0", "drivers license", "Olivia Rodrigo", 16),
-                            TasteTrack("TUVcZfQe-Kw", "Levitating", "Dua Lipa", 14),
+                            TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", playCount = 28),
+                            TasteTrack("V1Pl8CzNzCw", "bad guy", "Billie Eilish", playCount = 25),
+                            TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", playCount = 18),
+                            TasteTrack("oHg5SJYRHA0", "drivers license", "Olivia Rodrigo", playCount = 16),
+                            TasteTrack("TUVcZfQe-Kw", "Levitating", "Dua Lipa", playCount = 14),
                         ),
                         topGenres = listOf("Indie Pop", "Synthwave", "Alternative", "Pop"),
                         totalMinutes = 2450L,
