@@ -32,7 +32,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.music.bitchord.R
 import com.music.bitchord.data.blend.BlendedPlaylist
 import com.music.bitchord.data.blend.BlendedTrack
@@ -366,9 +370,9 @@ private fun BlendSleeveArt(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
                 ) {
-                    SleeveAvatar(playlist.userAName, Color(0xFF6C5CE7))
+                    SleeveAvatar(playlist.userAName, playlist.userAAvatarUrl, Color(0xFF6C5CE7))
                     Box(modifier = Modifier.offset(x = (-14).dp)) {
-                        SleeveAvatar(playlist.userBName, Color(0xFF00CEC9))
+                        SleeveAvatar(playlist.userBName, playlist.userBAvatarUrl, Color(0xFF00CEC9))
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -393,7 +397,9 @@ private fun BlendSleeveArt(
 }
 
 @Composable
-private fun SleeveAvatar(name: String, color: Color) {
+private fun SleeveAvatar(name: String, avatarUrl: String?, color: Color) {
+    var imageFailed by remember(avatarUrl) { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .size(46.dp)
@@ -402,12 +408,22 @@ private fun SleeveAvatar(name: String, color: Color) {
             .border(2.5.dp, Color.White, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = name.take(1).uppercase(),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Black,
-            color = Color.White,
-        )
+        if (!avatarUrl.isNullOrBlank() && !imageFailed) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                onState = { imageFailed = it is AsyncImagePainter.State.Error },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = name.take(1).uppercase().ifBlank { "?" },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+            )
+        }
     }
 }
 

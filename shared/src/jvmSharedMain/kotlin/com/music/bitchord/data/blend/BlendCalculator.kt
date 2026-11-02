@@ -253,14 +253,27 @@ object BlendCalculator {
             }
         }
 
-        val playlistTitle = "${userA.displayName} + ${userB.displayName} Blend"
+        val resolvedNameA = when {
+            userA.displayName.isNotBlank() && userA.displayName != "You" -> userA.displayName
+            userB.displayName.isNotBlank() && userB.displayName != "You" -> "Friend"
+            else -> "Partner"
+        }
+        val resolvedNameB = when {
+            userB.displayName.isNotBlank() && userB.displayName != "You" -> userB.displayName
+            else -> "You"
+        }
+        val playlistTitle = if (resolvedNameA == resolvedNameB) {
+            "$resolvedNameA + Friend Blend"
+        } else {
+            "$resolvedNameA + $resolvedNameB Blend"
+        }
         val playlistId = "blend_${userA.userId.take(6)}_${userB.userId.take(6)}"
 
         return BlendedPlaylist(
             id = playlistId,
             title = playlistTitle,
-            userAName = userA.displayName,
-            userBName = userB.displayName,
+            userAName = resolvedNameA,
+            userBName = resolvedNameB,
             userAAvatarUrl = userA.avatarUrl,
             userBAvatarUrl = userB.avatarUrl,
             matchPercentage = match.matchPercentage,

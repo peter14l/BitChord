@@ -21,9 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +56,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -61,6 +66,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.data.blend.BlendCalculator
 import com.music.bitchord.data.blend.BlendRepository
@@ -68,9 +74,10 @@ import com.music.bitchord.data.blend.BlendedPlaylist
 import com.music.bitchord.data.blend.TasteArtist
 import com.music.bitchord.data.blend.TasteProfile
 import com.music.bitchord.data.blend.TasteTrack
-import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.listentogether.ListenTogether
 import com.music.bitchord.data.stats.ListeningStats
 import com.music.bitchord.data.stats.ReplayPeriod
+import com.music.bitchord.data.stats.ReplaySummary
 import com.music.bitchord.ui.components.QrCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -82,6 +89,8 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun BlendInviteScreen(
+    userName: String = "You",
+    userAvatarUrl: String? = null,
     onClose: () -> Unit,
     onBlendReady: (BlendedPlaylist) -> Unit,
     modifier: Modifier = Modifier,
@@ -90,6 +99,16 @@ fun BlendInviteScreen(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
+    var myDisplayName by remember(userName) {
+        mutableStateOf(
+            userName.takeIf { it.isNotBlank() && it != "You" }
+                ?: ListenTogether.nickname().takeIf { it.isNotBlank() }
+                ?: "You"
+        )
+    }
+    var isEditingName by remember { mutableStateOf(false) }
+
+    var summaryState by remember { mutableStateOf<ReplaySummary?>(null) }
     var myProfile by remember { mutableStateOf<TasteProfile?>(null) }
     var compactPayload by remember { mutableStateOf<String?>(null) }
     var roomCode by remember { mutableStateOf<String?>(null) }
@@ -101,13 +120,18 @@ fun BlendInviteScreen(
 
     val serverUrl = BuildConfig.LISTEN_TOGETHER_SERVER.ifBlank { "https://bitchord-listen-together.onrender.com" }
 
-    // Load local listening profile and prepare direct invite payload
+    // Load local listening profile
     LaunchedEffect(Unit) {
         val summary = withContext(Dispatchers.IO) {
             ListeningStats.summary(ReplayPeriod.ALL_TIME)
         }
+        summaryState = summary
+    }
 
-        // Build taste profile, with starter favorites fallback if device has 0 play history
+    // Build taste profile, with starter favorites fallback if device has 0 play history
+    LaunchedEffect(myDisplayName, summaryState) {
+        val summary = summaryState ?: return@LaunchedEffect
+
         val artists = if (summary.artists.isNotEmpty()) {
             summary.artists.take(15).map { TasteArtist(it.browseId ?: it.title, it.title, weight = 1.0f, plays = it.plays) }
         } else {
@@ -121,19 +145,24 @@ fun BlendInviteScreen(
 
         val tracks = if (summary.songs.isNotEmpty()) {
             summary.songs.take(15).map {
+                val thumb = it.song.thumbnailUrl?.takeIf { url -> url.isNotBlank() }
+                    ?: if (it.song.videoId.isNotBlank() && !it.song.videoId.startsWith("local:")) {
+                        "https://i.ytimg.com/vi/${it.song.videoId}/hqdefault.jpg"
+                    } else null
                 TasteTrack(
                     videoId = it.song.videoId,
                     title = it.song.title,
                     artist = it.song.artist,
+                    artworkUrl = thumb,
                     playCount = it.plays,
                 )
             }
         } else {
             listOf(
-                TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", playCount = 10),
-                TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", playCount = 8),
-                TasteTrack("kJQP7kiw5Fk", "Despacito", "Luis Fonsi", playCount = 6),
-                TasteTrack("JGwWNGJdvx8", "Shape of You", "Ed Sheeran", playCount = 5),
+                TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", artworkUrl = "https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg", playCount = 10),
+                TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", artworkUrl = "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg", playCount = 8),
+                TasteTrack("kJQP7kiw5Fk", "Despacito", "Luis Fonsi", artworkUrl = "https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg", playCount = 6),
+                TasteTrack("JGwWNGJdvx8", "Shape of You", "Ed Sheeran", artworkUrl = "https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg", playCount = 5),
             )
         }
 
@@ -145,7 +174,8 @@ fun BlendInviteScreen(
 
         val profile = TasteProfile(
             userId = "device_${System.currentTimeMillis().toString().takeLast(6)}",
-            displayName = "You",
+            displayName = myDisplayName.ifBlank { "You" },
+            avatarUrl = userAvatarUrl,
             topArtists = artists,
             topTracks = tracks,
             topGenres = genres,
@@ -153,14 +183,16 @@ fun BlendInviteScreen(
         )
         myProfile = profile
         compactPayload = profile.toCompactPayload()
+    }
 
-        // Attempt online room session in background (non-blocking)
+    // Attempt online room session in background (non-blocking)
+    LaunchedEffect(compactPayload) {
+        val profile = myProfile ?: return@LaunchedEffect
         BlendRepository.createOnlineSession(serverUrl, profile)
             .onSuccess { code ->
                 roomCode = code
                 serverOnline = true
 
-                // Wait for partner on room server
                 scope.launch {
                     BlendRepository.waitForPartner(serverUrl, code)
                         .onSuccess { partnerProfile ->
@@ -170,7 +202,6 @@ fun BlendInviteScreen(
                 }
             }
             .onFailure {
-                // Server 404 or offline: direct QR & link invite mode remains 100% active
                 serverOnline = false
             }
     }
@@ -218,7 +249,107 @@ fun BlendInviteScreen(
             modifier = Modifier.padding(horizontal = 16.dp),
         )
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(18.dp))
+
+        // Card 0: Persona & Display Name Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.White.copy(alpha = 0.06f))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                .padding(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF6C5CE7))
+                            .border(2.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (!userAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = userAvatarUrl,
+                                contentDescription = myDisplayName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Text(
+                                text = myDisplayName.take(1).uppercase().ifBlank { "Y" },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = "BLENDING AS",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1DB954),
+                            letterSpacing = 1.sp,
+                        )
+                        if (isEditingName) {
+                            BasicTextField(
+                                value = myDisplayName,
+                                onValueChange = {
+                                    val trimmed = it.take(30)
+                                    myDisplayName = trimmed
+                                    ListenTogether.setNickname(trimmed)
+                                },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.titleMedium.copy(
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                cursorBrush = SolidColor(Color(0xFF1DB954)),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            Text(
+                                text = myDisplayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = {
+                        isEditingName = !isEditingName
+                        if (!isEditingName) {
+                            ListenTogether.setNickname(myDisplayName)
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isEditingName) Icons.Rounded.Check else Icons.Rounded.Edit,
+                        contentDescription = "Edit Name",
+                        tint = if (isEditingName) Color(0xFF1DB954) else Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
 
         // Card 1: Your Invite QR & Code
         Box(
@@ -290,18 +421,18 @@ fun BlendInviteScreen(
                             .clip(RoundedCornerShape(20.dp))
                             .background(Color(0xFF1DB954))
                             .clickable {
-                                val shareText = if (serverOnline && roomCode != null) {
-                                    "🎵 Let's blend our music tastes on BitChord!\n\nRoom code: $roomCode\nOr tap this link to blend:\n$directInviteLink"
-                                } else {
-                                    "🎵 Let's blend our music tastes on BitChord!\n\nTap this link to blend:\n$directInviteLink\n\n(Or copy this link and open BitChord → Settings → Blend)"
-                                }
-                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "Let's blend our music tastes on BitChord! Tap to blend: $directInviteLink"
+                                    )
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, shareText)
                                 }
-                                context.startActivity(Intent.createChooser(sendIntent, "Share Blend Invite"))
+                                val shareIntent = Intent.createChooser(sendIntent, "Share Blend Invite")
+                                context.startActivity(shareIntent)
                             }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -312,7 +443,7 @@ fun BlendInviteScreen(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = "Share Invite",
+                                text = "Share Link",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.Black,
@@ -377,6 +508,7 @@ fun BlendInviteScreen(
                     val partner = TasteProfile(
                         userId = "demo_luna",
                         displayName = "Luna",
+                        avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80",
                         topArtists = listOf(
                             TasteArtist("Billie Eilish", "Billie Eilish", 1.0f, 32),
                             TasteArtist("The Weeknd", "The Weeknd", 1.0f, 28),
@@ -385,11 +517,11 @@ fun BlendInviteScreen(
                             TasteArtist("Olivia Rodrigo", "Olivia Rodrigo", 1.0f, 15),
                         ),
                         topTracks = listOf(
-                            TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", playCount = 28),
-                            TasteTrack("V1Pl8CzNzCw", "bad guy", "Billie Eilish", playCount = 25),
-                            TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", playCount = 18),
-                            TasteTrack("oHg5SJYRHA0", "drivers license", "Olivia Rodrigo", playCount = 16),
-                            TasteTrack("TUVcZfQe-Kw", "Levitating", "Dua Lipa", playCount = 14),
+                            TasteTrack("4NRXx6U8ABQ", "Blinding Lights", "The Weeknd", artworkUrl = "https://i.ytimg.com/vi/4NRXx6U8ABQ/hqdefault.jpg", playCount = 28),
+                            TasteTrack("V1Pl8CzNzCw", "bad guy", "Billie Eilish", artworkUrl = "https://i.ytimg.com/vi/V1Pl8CzNzCw/hqdefault.jpg", playCount = 25),
+                            TasteTrack("fJ9rUzIMcZQ", "Bohemian Rhapsody", "Queen", artworkUrl = "https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg", playCount = 18),
+                            TasteTrack("oHg5SJYRHA0", "drivers license", "Olivia Rodrigo", artworkUrl = "https://i.ytimg.com/vi/oHg5SJYRHA0/hqdefault.jpg", playCount = 16),
+                            TasteTrack("TUVcZfQe-Kw", "Levitating", "Dua Lipa", artworkUrl = "https://i.ytimg.com/vi/TUVcZfQe-Kw/hqdefault.jpg", playCount = 14),
                         ),
                         topGenres = listOf("Indie Pop", "Synthwave", "Alternative", "Pop"),
                         totalMinutes = 2450L,
@@ -572,7 +704,7 @@ private fun processJoin(
             TasteProfile.fromCompactPayload(payload)
         }.onSuccess { partnerProfile ->
             onJoining(false)
-            val playlist = BlendCalculator.curatePlaylist(myProfile, partnerProfile)
+            val playlist = BlendCalculator.curatePlaylist(partnerProfile, myProfile)
             onSuccess(playlist)
         }.onFailure { err ->
             onJoining(false)

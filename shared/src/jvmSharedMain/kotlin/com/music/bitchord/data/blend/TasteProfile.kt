@@ -36,29 +36,44 @@ data class TasteTrack(
     val albumName: String? = null,
     val durationText: String? = null,
 ) {
-    fun toSong(): Song = Song(
-        videoId = videoId,
-        title = title,
-        artist = artist,
-        thumbnailUrl = artworkUrl,
-        artistId = artistId,
-        albumId = albumId,
-        albumName = albumName,
-        durationText = durationText,
-    )
+    fun toSong(): Song {
+        val resolvedThumbnail = artworkUrl?.takeIf { it.isNotBlank() }
+            ?: if (videoId.isNotBlank() && !videoId.startsWith("local:") && !videoId.startsWith("webdav:") && !videoId.startsWith("smb:")) {
+                "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+            } else {
+                null
+            }
+
+        return Song(
+            videoId = videoId,
+            title = title,
+            artist = artist,
+            thumbnailUrl = resolvedThumbnail,
+            artistId = artistId,
+            albumId = albumId,
+            albumName = albumName,
+            durationText = durationText,
+        )
+    }
 
     companion object {
-        fun fromSong(song: Song, plays: Int = 1): TasteTrack = TasteTrack(
-            videoId = song.videoId,
-            title = song.title,
-            artist = song.artist,
-            artworkUrl = song.thumbnailUrl,
-            playCount = plays,
-            artistId = song.artistId,
-            albumId = song.albumId,
-            albumName = song.albumName,
-            durationText = song.durationText,
-        )
+        fun fromSong(song: Song, plays: Int = 1): TasteTrack {
+            val thumb = song.thumbnailUrl?.takeIf { it.isNotBlank() }
+                ?: if (song.videoId.isNotBlank() && !song.videoId.startsWith("local:") && !song.videoId.startsWith("webdav:")) {
+                    "https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg"
+                } else null
+            return TasteTrack(
+                videoId = song.videoId,
+                title = song.title,
+                artist = song.artist,
+                artworkUrl = thumb,
+                playCount = plays,
+                artistId = song.artistId,
+                albumId = song.albumId,
+                albumName = song.albumName,
+                durationText = song.durationText,
+            )
+        }
     }
 }
 

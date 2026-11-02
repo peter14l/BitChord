@@ -3109,6 +3109,8 @@ private fun BitChordApp(
                                 )
                             } else {
                                 BlendInviteScreen(
+                                    userName = account?.name ?: ListenTogether.nickname(),
+                                    userAvatarUrl = account?.thumbnailUrl,
                                     onClose = { navigator.pop() },
                                     onBlendReady = { playlist ->
                                         activeBlendedPlaylist = playlist

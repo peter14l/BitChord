@@ -51,22 +51,33 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.music.bitchord.data.blend.BlendedPlaylist
+import com.music.bitchord.data.blend.BlendedTrack
 import com.music.bitchord.data.blend.TrackAttribution
+import com.music.bitchord.data.model.ROW_ART_PX
+import com.music.bitchord.data.model.artworkAt
+import com.music.bitchord.ui.icons.BitChordIcons
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
  * Spotify-style fullscreen animated reveal story displaying the match percentage and mutual music chemistry.
  * Supports:
+ * - Real user profile pictures / avatars with initials fallback
  * - Auto-advancing timed progress bar (6s per slide)
  * - Tap right to advance, tap left to go back
  * - Tap & hold to pause the story
  * - Explicit Next / Back buttons
+ * - Guaranteed song presentation on Slide 2 with cover artwork
  */
 @Composable
 fun BlendRevealStory(
@@ -216,13 +227,13 @@ fun BlendRevealStory(
                 }
             }
 
-            Spacer(Modifier.weight(0.1f))
+            Spacer(Modifier.weight(0.08f))
 
             // Slide Contents with Animated Transition
             AnimatedContent(
                 targetState = currentSlide,
                 transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
-                modifier = Modifier.weight(0.82f),
+                modifier = Modifier.weight(0.84f),
                 label = "StorySlide",
             ) { slide ->
                 when (slide) {
@@ -233,18 +244,35 @@ fun BlendRevealStory(
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.fillMaxSize(),
                         ) {
-                            // Overlapping dual avatars
+                            // Overlapping dual avatars with real pfp image support
                             Row(
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                AvatarCircle(playlist.userAName, Color(0xFF6C5CE7))
+                                AvatarCircle(
+                                    name = playlist.userAName,
+                                    avatarUrl = playlist.userAAvatarUrl,
+                                    fallbackColor = Color(0xFF6C5CE7),
+                                )
                                 Box(modifier = Modifier.offset(x = (-24).dp)) {
-                                    AvatarCircle(playlist.userBName, Color(0xFF00CEC9))
+                                    AvatarCircle(
+                                        name = playlist.userBName,
+                                        avatarUrl = playlist.userBAvatarUrl,
+                                        fallbackColor = Color(0xFF00CEC9),
+                                    )
                                 }
                             }
 
-                            Spacer(Modifier.height(32.dp))
+                            Spacer(Modifier.height(16.dp))
+
+                            Text(
+                                text = "${playlist.userAName}  &  ${playlist.userBName}",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.95f),
+                            )
+
+                            Spacer(Modifier.height(28.dp))
 
                             Text(
                                 text = "TASTE MATCH",
@@ -254,17 +282,17 @@ fun BlendRevealStory(
                                 color = Color(0xFFD4FF00),
                             )
 
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(6.dp))
 
                             Text(
                                 text = "${matchScoreAnim.value.roundToInt()}%",
                                 style = MaterialTheme.typography.displayLarge,
-                                fontSize = 88.sp,
+                                fontSize = 84.sp,
                                 fontWeight = FontWeight.W900,
                                 color = Color.White,
                             )
 
-                            Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(14.dp))
 
                             Text(
                                 text = when {
@@ -278,7 +306,7 @@ fun BlendRevealStory(
                                 modifier = Modifier.padding(horizontal = 24.dp),
                             )
 
-                            Spacer(Modifier.height(24.dp))
+                            Spacer(Modifier.height(20.dp))
 
                             Text(
                                 text = "Tap right to continue →",
@@ -288,73 +316,126 @@ fun BlendRevealStory(
                         }
                     }
                     1 -> {
-                        // Slide 2: Mutual Anthems
+                        // Slide 2: Shared Anthems or Discovery Highlights (Guaranteed to show tracks!)
+                        val sharedTracks = playlist.tracks.filter { it.attribution == TrackAttribution.SHARED_FAVORITE }
+                        val hasShared = sharedTracks.isNotEmpty()
+                        val tracksToShow: List<BlendedTrack> = if (hasShared) {
+                            sharedTracks.take(4)
+                        } else {
+                            val fromA = playlist.tracks.filter { it.attribution == TrackAttribution.USER_A }.take(2)
+                            val fromB = playlist.tracks.filter { it.attribution == TrackAttribution.USER_B }.take(2)
+                            (fromA + fromB).ifEmpty { playlist.tracks.take(4) }
+                        }
+
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.fillMaxSize(),
                         ) {
                             Text(
-                                text = "SHARED ANTHEMS",
+                                text = if (hasShared) "SHARED ANTHEMS" else "DISCOVERY HIGHLIGHTS",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF00CEC9),
+                                color = if (hasShared) Color(0xFF00CEC9) else Color(0xFFFFD32A),
                                 letterSpacing = 2.sp,
                             )
 
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(10.dp))
 
                             Text(
-                                text = "The music you both agree on",
-                                style = MaterialTheme.typography.headlineMedium,
+                                text = if (hasShared) "The music you both agree on" else "Top songs you're introducing to each other",
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 textAlign = TextAlign.Center,
                             )
 
-                            Spacer(Modifier.height(28.dp))
+                            Spacer(Modifier.height(20.dp))
 
-                            val sharedTracks = playlist.tracks.filter { it.attribution == TrackAttribution.SHARED_FAVORITE }
-                            if (sharedTracks.isNotEmpty()) {
-                                sharedTracks.take(4).forEach { item ->
-                                    Box(
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                            ) {
+                                tracksToShow.forEach { item ->
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 6.dp)
                                             .clip(RoundedCornerShape(16.dp))
                                             .background(Color.White.copy(alpha = 0.08f))
-                                            .padding(16.dp),
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Column {
+                                        // Track Cover Art
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.White.copy(alpha = 0.12f)),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (!item.song.thumbnailUrl.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = item.song.thumbnailUrl?.artworkAt(ROW_ART_PX),
+                                                    contentDescription = item.song.title,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = BitChordIcons.MusicNote,
+                                                    contentDescription = null,
+                                                    tint = Color.White.copy(alpha = 0.6f),
+                                                    modifier = Modifier.size(22.dp),
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(Modifier.width(12.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = item.song.title,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(
                                                 text = item.song.artist,
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                color = Color.White.copy(alpha = 0.6f),
+                                                color = Color.White.copy(alpha = 0.65f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+
+                                        Spacer(Modifier.width(8.dp))
+
+                                        // Attribution chip
+                                        val (chipLabel, chipColor) = when (item.attribution) {
+                                            TrackAttribution.SHARED_FAVORITE -> "Shared ★" to Color(0xFF1DB954)
+                                            TrackAttribution.USER_A -> playlist.userAName to Color(0xFF6C5CE7)
+                                            TrackAttribution.USER_B -> playlist.userBName to Color(0xFF00CEC9)
+                                            TrackAttribution.DISCOVERY_BRIDGE -> "Bridge ✦" to Color(0xFFFFA502)
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(chipColor.copy(alpha = 0.18f))
+                                                .border(1.dp, chipColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        ) {
+                                            Text(
+                                                text = chipLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = chipColor,
+                                                maxLines = 1,
                                             )
                                         }
                                     }
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color.White.copy(alpha = 0.08f))
-                                        .padding(20.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = "Your blend is packed with brand new discoveries for each other!",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        textAlign = TextAlign.Center,
-                                    )
                                 }
                             }
                         }
@@ -501,20 +582,38 @@ fun BlendRevealStory(
 }
 
 @Composable
-private fun AvatarCircle(name: String, color: Color) {
+private fun AvatarCircle(
+    name: String,
+    avatarUrl: String?,
+    fallbackColor: Color,
+    modifier: Modifier = Modifier,
+    size: Dp = 96.dp,
+) {
+    var imageFailed by remember(avatarUrl) { mutableStateOf(false) }
+
     Box(
-        modifier = Modifier
-            .size(92.dp)
+        modifier = modifier
+            .size(size)
             .clip(CircleShape)
-            .background(color)
-            .border(3.dp, Color.White, CircleShape),
+            .background(fallbackColor)
+            .border(3.5.dp, Color.White, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = name.take(1).uppercase(),
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.W900,
-            color = Color.White,
-        )
+        if (!avatarUrl.isNullOrBlank() && !imageFailed) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                onState = { imageFailed = it is AsyncImagePainter.State.Error },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = name.take(1).uppercase().ifBlank { "?" },
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.W900,
+                color = Color.White,
+            )
+        }
     }
 }
