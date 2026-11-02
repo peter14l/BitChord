@@ -3058,14 +3058,22 @@ private fun BitChordApp(
                             } else if (activeBlendedPlaylist != null) {
                                 BlendPlaylistScreen(
                                     playlist = activeBlendedPlaylist!!,
-                                    onTrackClick = { song -> viewModel.play(song) },
+                                    onTrackClick = { song ->
+                                        val songs = activeBlendedPlaylist!!.tracks.map { it.song }
+                                        val index = songs.indexOfFirst { it.videoId == song.videoId }.coerceAtLeast(0)
+                                        playFrom(songs, index, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                    },
                                     onPlayAll = {
                                         val songs = activeBlendedPlaylist!!.tracks.map { it.song }
-                                        if (songs.isNotEmpty()) viewModel.playQueue(songs, 0)
+                                        if (songs.isNotEmpty()) {
+                                            playFrom(songs, 0, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                        }
                                     },
                                     onShuffleAll = {
                                         val songs = activeBlendedPlaylist!!.tracks.map { it.song }.shuffled()
-                                        if (songs.isNotEmpty()) viewModel.playQueue(songs, 0)
+                                        if (songs.isNotEmpty()) {
+                                            playFrom(songs, 0, QueueSource("Blend", PlaybackSourceType.BROWSE))
+                                        }
                                     },
                                     onBack = { activeBlendedPlaylist = null },
                                 )

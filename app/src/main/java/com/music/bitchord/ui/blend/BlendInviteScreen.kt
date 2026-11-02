@@ -304,10 +304,10 @@ fun BlendInviteScreen(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Characters,
-                    imeAction = ImeAction.Join,
+                    imeAction = ImeAction.Go,
                 ),
                 keyboardActions = KeyboardActions(
-                    onJoin = {
+                    onGo = {
                         if (enteredCode.length == 6 && myProfile != null) {
                             isJoining = true
                             errorMessage = null
