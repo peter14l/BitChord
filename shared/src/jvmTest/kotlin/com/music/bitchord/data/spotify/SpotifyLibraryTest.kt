@@ -65,4 +65,15 @@ class SpotifyLibraryTest {
         assertNull(SpotifyImporter.extractPlaylistId("https://open.spotify.com/playlist/short"))
         assertNull(SpotifyImporter.extractPlaylistId(""))
     }
+
+    @Test
+    fun parseSpotifyLinkHandlesPlaylistsAlbumsArtistsTracks() {
+        val id = "37i9dQZF1DXcBWIGoYBM5M"
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.PLAYLIST, id), SpotifyImporter.parseSpotifyLink("https://open.spotify.com/playlist/$id"))
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ALBUM, id), SpotifyImporter.parseSpotifyLink("https://open.spotify.com/album/$id"))
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ARTIST, id), SpotifyImporter.parseSpotifyLink("https://open.spotify.com/artist/$id"))
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.TRACK, id), SpotifyImporter.parseSpotifyLink("https://open.spotify.com/track/$id"))
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ALBUM, id), SpotifyImporter.parseSpotifyLink("spotify:album:$id"))
+        assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ARTIST, id), SpotifyImporter.parseSpotifyLink("spotify:artist:$id"))
+    }
 }

@@ -49,37 +49,74 @@ object SpotifyImporter {
         isLenient = true
     }
 
-    /** A Spotify playlist id is 22 base-62 characters. */
-    private val PLAYLIST_ID = Regex("""[A-Za-z0-9]{22}""")
+    enum class SpotifyType(val segment: String) {
+        PLAYLIST("playlist"),
+        ALBUM("album"),
+        ARTIST("artist"),
+        TRACK("track"),
+    }
+
+    data class SpotifyLink(
+        val type: SpotifyType,
+        val id: String,
+    )
+
+    /** A Spotify ID is 22 base-62 characters. */
+    private val SPOTIFY_ID = Regex("""[A-Za-z0-9]{22}""")
 
     private fun isSpotifyHost(host: String) =
         host == "spotify.com" || host.endsWith(".spotify.com")
 
-    /** Parses a raw user string or link into a Spotify playlist ID if valid. */
-    fun extractPlaylistId(input: String): String? {
+    /** Parses a raw user string or link into a structured [SpotifyLink] (playlist, album, artist, track). */
+    fun parseSpotifyLink(input: String): SpotifyLink? {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return null
 
-        if (trimmed.startsWith("spotify:playlist:")) {
-            val id = trimmed.removePrefix("spotify:playlist:").substringBefore("?").substringBefore("/")
-            return id.takeIf { PLAYLIST_ID.matches(it) }
+        if (trimmed.startsWith("spotify:")) {
+            val parts = trimmed.split(':')
+            if (parts.size >= 3) {
+                val type = when (parts[1].lowercase()) {
+                    "playlist" -> SpotifyType.PLAYLIST
+                    "album" -> SpotifyType.ALBUM
+                    "artist" -> SpotifyType.ARTIST
+                    "track" -> SpotifyType.TRACK
+                    else -> null
+                }
+                val id = parts[2].substringBefore('?').substringBefore('/')
+                if (type != null && SPOTIFY_ID.matches(id)) {
+                    return SpotifyLink(type, id)
+                }
+            }
         }
 
         val uri = runCatching { java.net.URI(trimmed) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return null
         if (!isSpotifyHost(uri.host?.lowercase().orEmpty())) return null
         val segments = uri.path.orEmpty().split('/').filter { it.isNotEmpty() }
-        val playlistIdx = segments.indexOf("playlist")
-        if (playlistIdx == -1 || playlistIdx + 1 >= segments.size) return null
-        return segments[playlistIdx + 1].takeIf { PLAYLIST_ID.matches(it) }
+        for (type in SpotifyType.entries) {
+            val idx = segments.indexOf(type.segment)
+            if (idx != -1 && idx + 1 < segments.size) {
+                val id = segments[idx + 1].substringBefore('?').substringBefore('/')
+                if (SPOTIFY_ID.matches(id)) {
+                    return SpotifyLink(type, id)
+                }
+            }
+        }
+        return null
+    }
+
+    /** Parses a raw user string or link into a Spotify playlist ID if valid (playlist only). */
+    fun extractPlaylistId(input: String): String? {
+        val link = parseSpotifyLink(input)
+        return if (link?.type == SpotifyType.PLAYLIST) link.id else null
     }
 
     /**
-     * Fetches public Spotify playlist details from Spotify's embed endpoint.
+     * Fetches public Spotify playlist, album, artist, or track details from Spotify's embed endpoint.
      */
-    suspend fun fetchPlaylistTracks(playlistId: String): Pair<String, List<SpotifyImportTrack>> =
+    suspend fun fetchTracks(link: SpotifyLink): Pair<String, List<SpotifyImportTrack>> =
         withContext(Dispatchers.IO) {
-            val url = "https://open.spotify.com/embed/playlist/$playlistId"
+            val url = "https://open.spotify.com/embed/${link.type.segment}/${link.id}"
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", USER_AGENT)
@@ -88,7 +125,7 @@ object SpotifyImporter {
             val html = Http.client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful || body.isBlank()) {
-                    error("Failed to load Spotify playlist (HTTP ${response.code})")
+                    error("Failed to load Spotify ${link.type.segment} (HTTP ${response.code})")
                 }
                 body
             }
@@ -96,7 +133,7 @@ object SpotifyImporter {
             // Extract <script id="__NEXT_DATA__" type="application/json">...</script>
             val scriptRegex = Regex("""<script id="__NEXT_DATA__" type="application/json">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
             val match = scriptRegex.find(html)
-                ?: error("Could not parse Spotify playlist metadata. Make sure the playlist is public.")
+                ?: error("Could not parse Spotify ${link.type.segment} metadata. Make sure the content is public.")
 
             val jsonString = match.groupValues[1]
             val root = json.parseToJsonElement(jsonString).jsonObject
@@ -107,53 +144,187 @@ object SpotifyImporter {
                 ?.get("data")?.jsonObject
                 ?.get("entity")?.jsonObject
                 ?: props?.get("entity")?.jsonObject
-                ?: error("Spotify playlist entity missing or private")
+                ?: error("Spotify entity missing or private")
 
-            val playlistTitle = stateData["name"]?.jsonPrimitive?.content
+            val rawName = stateData["name"]?.jsonPrimitive?.content
                 ?: stateData["title"]?.jsonPrimitive?.content
-                ?: "Imported Spotify Playlist"
+                ?: "Imported Spotify ${link.type.name.lowercase().replaceFirstChar { it.uppercase() }}"
+
+            val artistCredit = stateData["subtitle"]?.jsonPrimitive?.content
+                ?: stateData["artists"]?.jsonArray?.joinToString(", ") {
+                    it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
+                }
+
+            val title = when (link.type) {
+                SpotifyType.ALBUM -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
+                SpotifyType.ARTIST -> "$rawName — Discography"
+                SpotifyType.TRACK -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
+                SpotifyType.PLAYLIST -> rawName
+            }
+
+            val tracks = mutableListOf<SpotifyImportTrack>()
+
+            fun addTrack(obj: JsonObject, defaultArtist: String? = null) {
+                val tTitle = obj["title"]?.jsonPrimitive?.content
+                    ?: obj["name"]?.jsonPrimitive?.content
+                    ?: return
+                val tArtist = obj["subtitle"]?.jsonPrimitive?.content
+                    ?: obj["artists"]?.jsonArray?.joinToString(", ") {
+                        it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
+                    }
+                    ?: defaultArtist
+                    ?: artistCredit
+                    ?: rawName
+                if (tTitle.isNotBlank()) {
+                    tracks.add(SpotifyImportTrack(title = tTitle.trim(), artist = tArtist.trim()))
+                }
+            }
 
             val trackListJson = stateData["trackList"]?.jsonArray
                 ?: stateData["tracks"]?.jsonArray
                 ?: JsonArray(emptyList())
 
-            val tracks = mutableListOf<SpotifyImportTrack>()
             for (element in trackListJson) {
-                val obj = element.jsonObject
-                val title = obj["title"]?.jsonPrimitive?.content
-                    ?: obj["name"]?.jsonPrimitive?.content
-                    ?: continue
-                val subtitle = obj["subtitle"]?.jsonPrimitive?.content
-                    ?: obj["artists"]?.jsonArray?.joinToString(", ") {
-                        it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
+                addTrack(element.jsonObject)
+            }
+
+            // For Artists: also extract discography/releases/albums if present in entity
+            if (link.type == SpotifyType.ARTIST) {
+                val releases = stateData["discography"]?.jsonObject?.get("all")?.jsonObject?.get("items")?.jsonArray
+                    ?: stateData["releases"]?.jsonArray
+                    ?: stateData["albums"]?.jsonArray
+                if (releases != null) {
+                    for (rel in releases) {
+                        val relObj = rel.jsonObject
+                        val relTracks = relObj["trackList"]?.jsonArray
+                            ?: relObj["tracks"]?.jsonArray
+                            ?: relObj["itemV2"]?.jsonObject?.get("data")?.jsonObject?.get("trackList")?.jsonArray
+                        if (relTracks != null) {
+                            for (t in relTracks) {
+                                addTrack(t.jsonObject, defaultArtist = rawName)
+                            }
+                        }
                     }
-                    ?: ""
-                if (title.isNotBlank()) {
-                    tracks.add(SpotifyImportTrack(title = title.trim(), artist = subtitle.trim()))
                 }
             }
 
-            if (tracks.isEmpty()) {
-                error("No tracks found in public Spotify playlist.")
+            if (tracks.isEmpty() && link.type == SpotifyType.TRACK && rawName.isNotBlank()) {
+                tracks.add(SpotifyImportTrack(title = rawName.trim(), artist = artistCredit.orEmpty().trim()))
             }
 
-            // The embed page stops at its first 100 tracks. The web player's
-            // own query, with the anonymous token the embed hands out, pages
-            // through the rest; if it refuses, the 100 already read stand.
-            if (tracks.size >= EMBED_TRACK_LIMIT) {
+            if (tracks.isEmpty()) {
+                error("No tracks found in public Spotify ${link.type.segment}.")
+            }
+
+            val distinctTracks = tracks.distinctBy { "${it.title.lowercase()}::${it.artist.lowercase()}" }
+
+            if (link.type == SpotifyType.PLAYLIST && distinctTracks.size >= EMBED_TRACK_LIMIT) {
                 val token = props?.get("state")?.jsonObject
                     ?.get("settings")?.jsonObject
                     ?.get("session")?.jsonObject
                     ?.get("accessToken")?.jsonPrimitive?.content
                 if (token != null) {
-                    runCatching { fetchRemainingTracks(playlistId, token, tracks.size) }
+                    runCatching { fetchRemainingTracks(link.id, token, distinctTracks.size) }
                         .getOrNull()
                         ?.let { tracks.addAll(it) }
                 }
             }
 
-            Pair(playlistTitle, tracks)
+            Pair(title, distinctTracks)
         }
+
+    /** Backwards-compatible helper for playlist IDs. */
+    suspend fun fetchPlaylistTracks(playlistId: String): Pair<String, List<SpotifyImportTrack>> {
+        val link = parseSpotifyLink(playlistId) ?: SpotifyLink(SpotifyType.PLAYLIST, playlistId)
+        return fetchTracks(link)
+    }
+
+    /**
+     * Resolves a Spotify track to the most appropriate YouTube Music song or video.
+     * Ensures we never return a track from an entirely unrelated artist when an artist was specified.
+     */
+    suspend fun findBestMatch(
+        title: String,
+        artist: String,
+        album: String? = null,
+        durationMs: Int? = null,
+        language: String? = null,
+    ): Song? {
+        val cleanTitle = title.trim()
+        val cleanArtist = artist.trim()
+        if (cleanTitle.isEmpty()) return null
+
+        val query = if (language != null) {
+            "$cleanTitle $cleanArtist $language".trim()
+        } else {
+            "$cleanTitle $cleanArtist".trim()
+        }
+
+        val target = TrackMatcher.Target(
+            title = cleanTitle,
+            artist = cleanArtist,
+            durationSec = durationMs?.takeIf { it > 0 }?.div(1000),
+            album = album,
+        )
+
+        // 1. Search official songs first
+        val songResults = YtMusicRepository.search(query, SearchFilter.SONGS).getOrNull()
+            ?.filterIsInstance<SearchResult.Track>()
+            ?.map { it.song }
+            .orEmpty()
+
+        val bestOfficialSong = TrackMatcher.best(songResults, target)
+        if (bestOfficialSong != null && (cleanArtist.isEmpty() || TrackMatcher.sharesArtist(cleanArtist, bestOfficialSong.artist))) {
+            return bestOfficialSong
+        }
+
+        if (cleanArtist.isNotEmpty()) {
+            val titleWords = cleanTitle.lowercase().split(Regex("""[\s\p{Punct}]+""")).filter { it.length >= 3 }
+            val matchingArtistSong = songResults.firstOrNull { candidate ->
+                TrackMatcher.sharesArtist(cleanArtist, candidate.artist) &&
+                    (titleWords.isEmpty() || titleWords.any { candidate.title.contains(it, ignoreCase = true) })
+            }
+            if (matchingArtistSong != null) return matchingArtistSong
+        }
+
+        // 2. Fallback: Search YouTube videos (vital for indie, folk, historical, or video-first artists like Farya Faraji)
+        val videoResults = YtMusicRepository.search(query, SearchFilter.VIDEOS).getOrNull()
+            ?.filterIsInstance<SearchResult.Track>()
+            ?.map { it.song }
+            .orEmpty()
+
+        val bestVideo = TrackMatcher.best(videoResults, target.copy(isVideo = true))
+        if (bestVideo != null && (cleanArtist.isEmpty() || TrackMatcher.sharesArtist(cleanArtist, bestVideo.artist))) {
+            return bestVideo
+        }
+
+        if (cleanArtist.isNotEmpty()) {
+            val titleWords = cleanTitle.lowercase().split(Regex("""[\s\p{Punct}]+""")).filter { it.length >= 3 }
+            // Video by the exact artist sharing title keywords
+            val matchingArtistVideo = videoResults.firstOrNull { candidate ->
+                TrackMatcher.sharesArtist(cleanArtist, candidate.artist) &&
+                    (titleWords.isEmpty() || titleWords.any { candidate.title.contains(it, ignoreCase = true) })
+            }
+            if (matchingArtistVideo != null) return matchingArtistVideo
+
+            // Video whose title contains both the artist name and track title keywords
+            val combinedVideo = videoResults.firstOrNull { candidate ->
+                val candTitle = candidate.title.lowercase()
+                candTitle.contains(cleanArtist.lowercase()) &&
+                    (titleWords.isEmpty() || titleWords.any { candTitle.contains(it) })
+            }
+            if (combinedVideo != null) return combinedVideo
+
+            // Any video by this artist returned for this query
+            val anyArtistVideo = videoResults.firstOrNull { candidate ->
+                TrackMatcher.sharesArtist(cleanArtist, candidate.artist)
+            }
+            if (anyArtistVideo != null) return anyArtistVideo
+        }
+
+        // 3. Fallback: only if confidence is high and no conflicting artist
+        return bestOfficialSong ?: bestVideo
+    }
 
     /**
      * The YouTube Music song that is [track], or null if there is none: the
@@ -161,30 +332,12 @@ object SpotifyImporter {
      * search's first hit.
      */
     suspend fun matchTrack(track: SpotifyTrack): Song? {
-        val query = listOf(track.title, track.artist).filter { it.isNotBlank() }.joinToString(" ")
-        val candidates = YtMusicRepository.search(query, SearchFilter.SONGS).getOrNull()
-            ?.filterIsInstance<SearchResult.Track>()
-            ?.map { it.song }
-            .orEmpty()
-        val target = TrackMatcher.Target(
+        return findBestMatch(
             title = track.title,
             artist = track.artist,
-            durationSec = track.durationMs.takeIf { it > 0 }?.div(1000),
             album = track.album,
+            durationMs = track.durationMs,
         )
-        val bestSong = TrackMatcher.best(candidates, target)
-        if (bestSong != null) return bestSong
-
-        // Fallback: If no official audio track matched, search YouTube videos.
-        // Independent composers and artists (such as Farya Faraji) often distribute
-        // their music directly as YouTube video uploads rather than distributor audio topics.
-        val videoCandidates = YtMusicRepository.search(query, SearchFilter.VIDEOS).getOrNull()
-            ?.filterIsInstance<SearchResult.Track>()
-            ?.map { it.song }
-            .orEmpty()
-        return TrackMatcher.best(videoCandidates, target.copy(isVideo = true))
-            ?: candidates.firstOrNull()
-            ?: videoCandidates.firstOrNull()
     }
 
     /** Tracks the embed page lists before it cuts off. */
@@ -269,48 +422,11 @@ object SpotifyImporter {
         val deferredResults = tracks.map { track ->
             async(Dispatchers.IO) {
                 semaphore.withPermit {
-                    val query = if (cleanLang != null) {
-                        "${track.title} ${track.artist} $cleanLang".trim()
-                    } else {
-                        "${track.title} ${track.artist}".trim()
-                    }
-
-                    val searchResult = YtMusicRepository.search(query, SearchFilter.SONGS).getOrNull()
-                    val candidates = searchResult?.filterIsInstance<SearchResult.Track>()?.map { it.song }.orEmpty()
-
-                    val target = TrackMatcher.Target(
+                    val matchedSong = findBestMatch(
                         title = track.title,
                         artist = track.artist,
+                        language = cleanLang,
                     )
-                    var bestMatch = TrackMatcher.best(candidates, target)
-                    var videoCandidates: List<Song> = emptyList()
-
-                    if (bestMatch == null) {
-                        // Fallback: If no official audio song matched, search YouTube videos (e.g. Farya Faraji)
-                        val videoSearchResult = YtMusicRepository.search(query, SearchFilter.VIDEOS).getOrNull()
-                        videoCandidates = videoSearchResult?.filterIsInstance<SearchResult.Track>()?.map { it.song }.orEmpty()
-                        bestMatch = TrackMatcher.best(videoCandidates, target.copy(isVideo = true))
-                            ?: candidates.firstOrNull()
-                            ?: videoCandidates.firstOrNull()
-                    }
-
-                    val allCandidates = candidates + videoCandidates
-                    val matchedSong = if (cleanLang != null && allCandidates.isNotEmpty()) {
-                        val conflictingLangs = knownLanguages.filter { !it.equals(cleanLang, ignoreCase = true) }
-                        val nonConflictingCandidates = allCandidates.filter { candidate ->
-                            val meta = "${candidate.title} ${candidate.artist} ${candidate.albumName.orEmpty()}".lowercase()
-                            !conflictingLangs.any {
-                                meta.contains("(${it.lowercase()})") ||
-                                meta.contains("${it.lowercase()} version") ||
-                                meta.contains("${it.lowercase()} song")
-                            }
-                        }
-                        TrackMatcher.best(nonConflictingCandidates, target)
-                            ?: nonConflictingCandidates.firstOrNull()
-                            ?: bestMatch
-                    } else {
-                        bestMatch
-                    }
 
                     val done = completedCount.incrementAndGet()
                     onProgress(done, total)

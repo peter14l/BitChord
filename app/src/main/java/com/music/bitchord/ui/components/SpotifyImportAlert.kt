@@ -88,8 +88,8 @@ fun SpotifyImportAlert(
     var unmatched by remember { mutableStateOf<List<SpotifyImportTrack>?>(null) }
 
     fun start() {
-        val id = SpotifyImporter.extractPlaylistId(link)
-        if (id == null) {
+        val linkObj = SpotifyImporter.parseSpotifyLink(link)
+        if (linkObj == null) {
             status = context.getString(R.string.spotify_import_invalid)
             failed = true
             return
@@ -104,7 +104,7 @@ fun SpotifyImportAlert(
         status = context.getString(R.string.spotify_import_fetching)
         scope.launch {
             try {
-                val (name, tracks) = SpotifyImporter.fetchPlaylistTracks(id)
+                val (name, tracks) = SpotifyImporter.fetchTracks(linkObj)
                 val (songs, missed) = SpotifyImporter.resolveToSongs(tracks, effectiveLanguage) { done, total ->
                     status = context.getString(R.string.spotify_import_matching, done, total)
                 }
