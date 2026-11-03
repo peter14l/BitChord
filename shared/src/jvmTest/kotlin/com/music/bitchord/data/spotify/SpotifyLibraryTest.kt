@@ -1,10 +1,13 @@
 package com.music.bitchord.data.spotify
 
+import com.music.bitchord.data.sources.TrackMatcher
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SpotifyLibraryTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -75,5 +78,65 @@ class SpotifyLibraryTest {
         assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.TRACK, id), SpotifyImporter.parseSpotifyLink("https://open.spotify.com/track/$id"))
         assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ALBUM, id), SpotifyImporter.parseSpotifyLink("spotify:album:$id"))
         assertEquals(SpotifyImporter.SpotifyLink(SpotifyImporter.SpotifyType.ARTIST, id), SpotifyImporter.parseSpotifyLink("spotify:artist:$id"))
+    }
+
+    @Test
+    fun parseNextDataExtractsAlbumWithArtist() {
+        val root = json.parseToJsonElement(
+            """
+            {"props":{"pageProps":{"state":{"data":{"entity":{
+                "name":"The Roman Empire",
+                "subtitle":"Farya Faraji",
+                "trackList":[
+                    {"name":"Legio XIII Gemina","subtitle":"Farya Faraji"},
+                    {"name":"The Roman Renaissance","subtitle":"Farya Faraji"}
+                ]
+            }}}}}}
+            """.trimIndent(),
+        ).jsonObject
+
+        val (title, tracks) = SpotifyImporter.parseNextData(root, SpotifyImporter.SpotifyType.ALBUM)
+        assertEquals("The Roman Empire — Farya Faraji", title)
+        assertEquals(2, tracks.size)
+        assertEquals("Legio XIII Gemina", tracks[0].title)
+        assertEquals("Farya Faraji", tracks[0].artist)
+        assertEquals("The Roman Renaissance", tracks[1].title)
+        assertEquals("Farya Faraji", tracks[1].artist)
+    }
+
+    @Test
+    fun parseNextDataExtractsArtistDiscography() {
+        val root = json.parseToJsonElement(
+            """
+            {"props":{"pageProps":{"state":{"data":{"entity":{
+                "name":"Farya Faraji",
+                "trackList":[
+                    {"name":"The Steppe","subtitle":"Farya Faraji"}
+                ],
+                "discography":{"all":{"items":[
+                    {"trackList":[
+                        {"name":"Sasanian Anthem","subtitle":"Farya Faraji"}
+                    ]}
+                ]}
+            }}}}}}}
+            """.trimIndent(),
+        ).jsonObject
+
+        val (title, tracks) = SpotifyImporter.parseNextData(root, SpotifyImporter.SpotifyType.ARTIST)
+        assertEquals("Farya Faraji — Discography", title)
+        assertEquals(2, tracks.size)
+        assertEquals("The Steppe", tracks[0].title)
+        assertEquals("Sasanian Anthem", tracks[1].title)
+        assertEquals("Farya Faraji", tracks[1].artist)
+    }
+
+    @Test
+    fun trackMatcherSharesArtistMatchesExactAndRejectsUnrelated() {
+        assertTrue(TrackMatcher.sharesArtist("Farya Faraji", "Farya Faraji"))
+        assertTrue(TrackMatcher.sharesArtist("Farya Faraji", "Farya Faraji - Topic"))
+        assertTrue(TrackMatcher.sharesArtist("Farya Faraji", "Farya Faraji, Gabriel"))
+        assertFalse(TrackMatcher.sharesArtist("Farya Faraji", "Blue Taurus"))
+        assertFalse(TrackMatcher.sharesArtist("Farya Faraji", "The Sound of Peace"))
+        assertFalse(TrackMatcher.sharesArtist("Farya Faraji", "Various Artists"))
     }
 }

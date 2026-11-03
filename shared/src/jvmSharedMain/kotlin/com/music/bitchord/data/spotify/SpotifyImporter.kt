@@ -138,100 +138,110 @@ object SpotifyImporter {
             val jsonString = match.groupValues[1]
             val root = json.parseToJsonElement(jsonString).jsonObject
 
-            val props = root["props"]?.jsonObject
-                ?.get("pageProps")?.jsonObject
-            val stateData = props?.get("state")?.jsonObject
-                ?.get("data")?.jsonObject
-                ?.get("entity")?.jsonObject
-                ?: props?.get("entity")?.jsonObject
-                ?: error("Spotify entity missing or private")
+            val (title, distinctTracks) = parseNextData(root, link.type)
+            val tracks = distinctTracks.toMutableList()
 
-            val rawName = stateData["name"]?.jsonPrimitive?.content
-                ?: stateData["title"]?.jsonPrimitive?.content
-                ?: "Imported Spotify ${link.type.name.lowercase().replaceFirstChar { it.uppercase() }}"
-
-            val artistCredit = stateData["subtitle"]?.jsonPrimitive?.content
-                ?: stateData["artists"]?.jsonArray?.joinToString(", ") {
-                    it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
-                }
-
-            val title = when (link.type) {
-                SpotifyType.ALBUM -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
-                SpotifyType.ARTIST -> "$rawName — Discography"
-                SpotifyType.TRACK -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
-                SpotifyType.PLAYLIST -> rawName
-            }
-
-            val tracks = mutableListOf<SpotifyImportTrack>()
-
-            fun addTrack(obj: JsonObject, defaultArtist: String? = null) {
-                val tTitle = obj["title"]?.jsonPrimitive?.content
-                    ?: obj["name"]?.jsonPrimitive?.content
-                    ?: return
-                val tArtist = obj["subtitle"]?.jsonPrimitive?.content
-                    ?: obj["artists"]?.jsonArray?.joinToString(", ") {
-                        it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
-                    }
-                    ?: defaultArtist
-                    ?: artistCredit
-                    ?: rawName
-                if (tTitle.isNotBlank()) {
-                    tracks.add(SpotifyImportTrack(title = tTitle.trim(), artist = tArtist.trim()))
-                }
-            }
-
-            val trackListJson = stateData["trackList"]?.jsonArray
-                ?: stateData["tracks"]?.jsonArray
-                ?: JsonArray(emptyList())
-
-            for (element in trackListJson) {
-                addTrack(element.jsonObject)
-            }
-
-            // For Artists: also extract discography/releases/albums if present in entity
-            if (link.type == SpotifyType.ARTIST) {
-                val releases = stateData["discography"]?.jsonObject?.get("all")?.jsonObject?.get("items")?.jsonArray
-                    ?: stateData["releases"]?.jsonArray
-                    ?: stateData["albums"]?.jsonArray
-                if (releases != null) {
-                    for (rel in releases) {
-                        val relObj = rel.jsonObject
-                        val relTracks = relObj["trackList"]?.jsonArray
-                            ?: relObj["tracks"]?.jsonArray
-                            ?: relObj["itemV2"]?.jsonObject?.get("data")?.jsonObject?.get("trackList")?.jsonArray
-                        if (relTracks != null) {
-                            for (t in relTracks) {
-                                addTrack(t.jsonObject, defaultArtist = rawName)
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (tracks.isEmpty() && link.type == SpotifyType.TRACK && rawName.isNotBlank()) {
-                tracks.add(SpotifyImportTrack(title = rawName.trim(), artist = artistCredit.orEmpty().trim()))
-            }
-
-            if (tracks.isEmpty()) {
-                error("No tracks found in public Spotify ${link.type.segment}.")
-            }
-
-            val distinctTracks = tracks.distinctBy { "${it.title.lowercase()}::${it.artist.lowercase()}" }
-
-            if (link.type == SpotifyType.PLAYLIST && distinctTracks.size >= EMBED_TRACK_LIMIT) {
+            val props = root["props"]?.jsonObject?.get("pageProps")?.jsonObject
+            if (link.type == SpotifyType.PLAYLIST && tracks.size >= EMBED_TRACK_LIMIT) {
                 val token = props?.get("state")?.jsonObject
                     ?.get("settings")?.jsonObject
                     ?.get("session")?.jsonObject
                     ?.get("accessToken")?.jsonPrimitive?.content
                 if (token != null) {
-                    runCatching { fetchRemainingTracks(link.id, token, distinctTracks.size) }
+                    runCatching { fetchRemainingTracks(link.id, token, tracks.size) }
                         .getOrNull()
                         ?.let { tracks.addAll(it) }
                 }
             }
 
-            Pair(title, distinctTracks)
+            Pair(title, tracks)
         }
+
+    /**
+     * Parses the __NEXT_DATA__ JSON object extracted from Spotify embed pages.
+     */
+    internal fun parseNextData(root: JsonObject, type: SpotifyType): Pair<String, List<SpotifyImportTrack>> {
+        val props = root["props"]?.jsonObject
+            ?.get("pageProps")?.jsonObject
+        val stateData = props?.get("state")?.jsonObject
+            ?.get("data")?.jsonObject
+            ?.get("entity")?.jsonObject
+            ?: props?.get("entity")?.jsonObject
+            ?: error("Spotify entity missing or private")
+
+        val rawName = stateData["name"]?.jsonPrimitive?.content
+            ?: stateData["title"]?.jsonPrimitive?.content
+            ?: "Imported Spotify ${type.name.lowercase().replaceFirstChar { it.uppercase() }}"
+
+        val artistCredit = stateData["subtitle"]?.jsonPrimitive?.content
+            ?: stateData["artists"]?.jsonArray?.joinToString(", ") {
+                it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
+            }
+
+        val title = when (type) {
+            SpotifyType.ALBUM -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
+            SpotifyType.ARTIST -> "$rawName — Discography"
+            SpotifyType.TRACK -> if (!artistCredit.isNullOrBlank()) "$rawName — $artistCredit" else rawName
+            SpotifyType.PLAYLIST -> rawName
+        }
+
+        val tracks = mutableListOf<SpotifyImportTrack>()
+
+        fun addTrack(obj: JsonObject, defaultArtist: String? = null) {
+            val tTitle = obj["title"]?.jsonPrimitive?.content
+                ?: obj["name"]?.jsonPrimitive?.content
+                ?: return
+            val tArtist = obj["subtitle"]?.jsonPrimitive?.content
+                ?: obj["artists"]?.jsonArray?.joinToString(", ") {
+                    it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty()
+                }
+                ?: defaultArtist
+                ?: artistCredit
+                ?: rawName
+            if (tTitle.isNotBlank()) {
+                tracks.add(SpotifyImportTrack(title = tTitle.trim(), artist = tArtist.trim()))
+            }
+        }
+
+        val trackListJson = stateData["trackList"]?.jsonArray
+            ?: stateData["tracks"]?.jsonArray
+            ?: JsonArray(emptyList())
+
+        for (element in trackListJson) {
+            addTrack(element.jsonObject)
+        }
+
+        // For Artists: also extract discography/releases/albums if present in entity
+        if (type == SpotifyType.ARTIST) {
+            val releases = stateData["discography"]?.jsonObject?.get("all")?.jsonObject?.get("items")?.jsonArray
+                ?: stateData["releases"]?.jsonArray
+                ?: stateData["albums"]?.jsonArray
+            if (releases != null) {
+                for (rel in releases) {
+                    val relObj = rel.jsonObject
+                    val relTracks = relObj["trackList"]?.jsonArray
+                        ?: relObj["tracks"]?.jsonArray
+                        ?: relObj["itemV2"]?.jsonObject?.get("data")?.jsonObject?.get("trackList")?.jsonArray
+                    if (relTracks != null) {
+                        for (t in relTracks) {
+                            addTrack(t.jsonObject, defaultArtist = rawName)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (tracks.isEmpty() && type == SpotifyType.TRACK && rawName.isNotBlank()) {
+            tracks.add(SpotifyImportTrack(title = rawName.trim(), artist = artistCredit.orEmpty().trim()))
+        }
+
+        if (tracks.isEmpty()) {
+            error("No tracks found in public Spotify ${type.segment}.")
+        }
+
+        val distinctTracks = tracks.distinctBy { "${it.title.lowercase()}::${it.artist.lowercase()}" }
+        return Pair(title, distinctTracks)
+    }
 
     /** Backwards-compatible helper for playlist IDs. */
     suspend fun fetchPlaylistTracks(playlistId: String): Pair<String, List<SpotifyImportTrack>> {
