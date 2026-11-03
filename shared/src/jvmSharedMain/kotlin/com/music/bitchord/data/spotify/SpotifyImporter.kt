@@ -166,15 +166,25 @@ object SpotifyImporter {
             ?.filterIsInstance<SearchResult.Track>()
             ?.map { it.song }
             .orEmpty()
-        return TrackMatcher.best(
-            candidates,
-            TrackMatcher.Target(
-                title = track.title,
-                artist = track.artist,
-                durationSec = track.durationMs.takeIf { it > 0 }?.div(1000),
-                album = track.album,
-            ),
-        ) ?: candidates.firstOrNull()
+        val target = TrackMatcher.Target(
+            title = track.title,
+            artist = track.artist,
+            durationSec = track.durationMs.takeIf { it > 0 }?.div(1000),
+            album = track.album,
+        )
+        val bestSong = TrackMatcher.best(candidates, target)
+        if (bestSong != null) return bestSong
+
+        // Fallback: If no official audio track matched, search YouTube videos.
+        // Independent composers and artists (such as Farya Faraji) often distribute
+        // their music directly as YouTube video uploads rather than distributor audio topics.
+        val videoCandidates = YtMusicRepository.search(query, SearchFilter.VIDEOS).getOrNull()
+            ?.filterIsInstance<SearchResult.Track>()
+            ?.map { it.song }
+            .orEmpty()
+        return TrackMatcher.best(videoCandidates, target.copy(isVideo = true))
+            ?: candidates.firstOrNull()
+            ?: videoCandidates.firstOrNull()
     }
 
     /** Tracks the embed page lists before it cuts off. */
@@ -272,11 +282,22 @@ object SpotifyImporter {
                         title = track.title,
                         artist = track.artist,
                     )
-                    val bestMatch = TrackMatcher.best(candidates, target) ?: candidates.firstOrNull()
+                    var bestMatch = TrackMatcher.best(candidates, target)
+                    var videoCandidates: List<Song> = emptyList()
 
-                    val matchedSong = if (cleanLang != null && candidates.isNotEmpty()) {
+                    if (bestMatch == null) {
+                        // Fallback: If no official audio song matched, search YouTube videos (e.g. Farya Faraji)
+                        val videoSearchResult = YtMusicRepository.search(query, SearchFilter.VIDEOS).getOrNull()
+                        videoCandidates = videoSearchResult?.filterIsInstance<SearchResult.Track>()?.map { it.song }.orEmpty()
+                        bestMatch = TrackMatcher.best(videoCandidates, target.copy(isVideo = true))
+                            ?: candidates.firstOrNull()
+                            ?: videoCandidates.firstOrNull()
+                    }
+
+                    val allCandidates = candidates + videoCandidates
+                    val matchedSong = if (cleanLang != null && allCandidates.isNotEmpty()) {
                         val conflictingLangs = knownLanguages.filter { !it.equals(cleanLang, ignoreCase = true) }
-                        val nonConflictingCandidates = candidates.filter { candidate ->
+                        val nonConflictingCandidates = allCandidates.filter { candidate ->
                             val meta = "${candidate.title} ${candidate.artist} ${candidate.albumName.orEmpty()}".lowercase()
                             !conflictingLangs.any {
                                 meta.contains("(${it.lowercase()})") ||
