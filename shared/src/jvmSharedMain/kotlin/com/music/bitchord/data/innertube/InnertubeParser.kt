@@ -56,12 +56,12 @@ object InnertubeParser {
      */
     fun parseSearch(response: JsonObject): List<SearchResult> = parseSearchPage(response).rows
 
-    fun parseSearchPage(response: JsonObject, includeVideos: Boolean = false): SearchPage {
+    fun parseSearchPage(response: JsonObject, includeVideos: Boolean? = false): SearchPage {
         // The "All" tab spreads results across several shelf types (card shelf
         // for the top result, then one shelf per category). Its promoted top
         // result lives on the card itself, not in a responsive row, so read it
         // first before walking the ordinary result rows.
-        val topResults: List<SearchResult> = if (includeVideos) emptyList() else {
+        val topResults: List<SearchResult> = if (includeVideos == true) emptyList() else {
             collectRenderers(response, "musicCardShelfRenderer")
                 .mapNotNull { card ->
                     parseCardShelfSong(card)?.let(SearchResult::TopTrack)
@@ -74,7 +74,7 @@ object InnertubeParser {
         // credit that card bills them to — see [cardShelfCredit]. Matched by
         // identity below, because these are the same renderer objects the walk
         // above already found; a card row is just a row that also sits here.
-        val cardCredits: List<Pair<JsonObject, Credits>> = if (includeVideos) emptyList() else {
+        val cardCredits: List<Pair<JsonObject, Credits>> = if (includeVideos == true) emptyList() else {
             collectRenderers(response, "musicCardShelfRenderer").flatMap { card ->
                 val credit = cardShelfCredit(card) ?: return@flatMap emptyList()
                 collectRenderers(card, "musicResponsiveListItemRenderer").map { it to credit }
@@ -86,9 +86,12 @@ object InnertubeParser {
             topResults.forEach { result ->
                 when (result) {
                     is SearchResult.TopTrack -> {
-                        // The mixed All page stays music-only; music-video uploads
-                        // belong exclusively to the dedicated Videos tab.
-                        if (!result.song.isVideo && seen.add("v:${result.song.videoId}")) add(result)
+                        val matches = when (includeVideos) {
+                            true -> result.song.isVideo
+                            false -> !result.song.isVideo
+                            null -> true
+                        }
+                        if (matches && seen.add("v:${result.song.videoId}")) add(result)
                     }
                     is SearchResult.Browse -> {
                         if (seen.add("b:${result.item.browseId}")) add(result)
@@ -106,9 +109,12 @@ object InnertubeParser {
                 } else {
                     val fallback = cardCredits.firstOrNull { it.first === renderer }?.second
                     parseResponsiveListItem(renderer, fallback ?: Credits())?.let { song ->
-                        // The mixed All page stays music-only; the dedicated Videos
-                        // filter is the one place music-video uploads belong.
-                        if (song.isVideo == includeVideos && seen.add("v:${song.videoId}")) {
+                        val matches = when (includeVideos) {
+                            true -> song.isVideo
+                            false -> !song.isVideo
+                            null -> true
+                        }
+                        if (matches && seen.add("v:${song.videoId}")) {
                             add(SearchResult.Track(song))
                         }
                     }

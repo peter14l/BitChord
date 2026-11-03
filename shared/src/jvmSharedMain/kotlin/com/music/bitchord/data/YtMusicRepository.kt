@@ -333,9 +333,15 @@ object YtMusicRepository {
      */
     suspend fun searchPage(query: String, filter: SearchFilter, anonymous: Boolean = true): Result<SearchPage> =
         call("search:${filter.name}") {
+            val includeVideos = when (filter) {
+                SearchFilter.VIDEOS -> true
+                SearchFilter.SONGS -> false
+                SearchFilter.ALL -> null
+                else -> false
+            }
             InnertubeParser.parseSearchPage(
                 Innertube.search(query, filter.params, anonymous),
-                includeVideos = filter == SearchFilter.VIDEOS,
+                includeVideos = includeVideos,
             ).let { page ->
                 SearchPage(page.rows.distinctBy { it.identityKey() }, page.continuation)
             }
@@ -343,9 +349,15 @@ object YtMusicRepository {
 
     /** Fetches the next page of a search only when the result list needs it. */
     suspend fun searchContinuation(token: String, filter: SearchFilter): Result<SearchPage> = call("search:continuation") {
+        val includeVideos = when (filter) {
+            SearchFilter.VIDEOS -> true
+            SearchFilter.SONGS -> false
+            SearchFilter.ALL -> null
+            else -> false
+        }
         InnertubeParser.parseSearchPage(
             Innertube.searchContinuation(token),
-            includeVideos = filter == SearchFilter.VIDEOS,
+            includeVideos = includeVideos,
         ).let { page ->
             SearchPage(page.rows.distinctBy { it.identityKey() }, page.continuation)
         }
